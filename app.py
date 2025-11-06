@@ -264,7 +264,11 @@ col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
 
 with col_preview:
     if uploaded:
-        image = Image.open(uploaded)
+        # Read image data and store for later use
+        image_bytes = uploaded.read()
+        image = Image.open(io.BytesIO(image_bytes))
+        st.session_state.uploaded_image_bytes = image_bytes
+        st.session_state.uploaded_image = image
         st.image(image, caption="Pratinjau Gambar", use_container_width=True)
 
 st.write("")
@@ -277,9 +281,14 @@ detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=not uploade
 if detect_btn and uploaded:
     try:
         with st.spinner("Memproses..."):
-            # Read image data once to avoid file pointer issues
-            image = Image.open(uploaded)
-            uploaded.seek(0)  # Reset file pointer for potential reuse
+            # Use stored image data from session state
+            if 'uploaded_image' in st.session_state:
+                image = st.session_state.uploaded_image
+                image_bytes = st.session_state.uploaded_image_bytes
+            else:
+                # Fallback: read from uploaded file
+                image_bytes = uploaded.read()
+                image = Image.open(io.BytesIO(image_bytes))
             
             if mode == "Demo Mode":
                 # Demo simulation
@@ -291,7 +300,7 @@ if detect_btn and uploaded:
                 st.info("🔌 Menghubungkan ke API server...")
                 
                 # Try API detection
-                result = detect_with_api(uploaded, api_url)
+                result = detect_with_api(io.BytesIO(image_bytes), api_url)
                 
                 if result is None:
                     st.error("❌ Tidak dapat terhubung ke API server.")
