@@ -2,10 +2,9 @@ import streamlit as st
 import requests
 import base64
 import io
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 import numpy as np
-import cv2
 import os
 import time
 from datetime import datetime
@@ -68,10 +67,8 @@ def detect_with_api(image_data, api_url=HUGGINGFACE_API_URL):
 def detect_food_local(model, image, confidence_threshold=0.5):
     """Deteksi menggunakan model lokal"""
     try:
-        # Convert image
-        image_array = np.array(image)
-        if image_array.shape[2] == 3:
-            image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+        # Convert image to RGB array for YOLO
+        image_array = np.array(image.convert('RGB'))
         
         # Run detection
         results = model(image_array)[0]
@@ -94,18 +91,29 @@ def detect_food_local(model, image, confidence_threshold=0.5):
                 })
                 food_names.append(class_name)
         
-        # Draw bounding boxes
-        annotated_image = image_array.copy()
+        # Draw bounding boxes using PIL
+        annotated_image = image.copy()
+        draw = ImageDraw.Draw(annotated_image)
+        
+        try:
+            # Try to use a default font
+            font = ImageFont.load_default()
+        except:
+            font = None
+        
         for obj in detected_objects:
             x1, y1, x2, y2 = obj["bbox"]
-            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Draw rectangle
+            draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+            
+            # Draw label
             label = f"{obj['nama']} ({obj['confidence']:.2f})"
-            cv2.putText(annotated_image, label, (x1, y1-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            if font:
+                draw.text((x1, y1-20), label, fill=(0, 255, 0), font=font)
+            else:
+                draw.text((x1, y1-20), label, fill=(0, 255, 0))
         
-        annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-        
-        return detected_objects, food_names, annotated_rgb
+        return detected_objects, food_names, annotated_image
         
     except Exception as e:
         st.error(f"❌ Local detection error: {str(e)}")
@@ -222,9 +230,12 @@ if uploaded_file:
                         img_data_url = result.get("image", "")
                         if img_data_url:
                             try:
-                                mime, img_data = base64.b64decode(img_data_url.split(",")[1]), 
+                                # Parse base64 data URL
+                                header, encoded = img_data_url.split(",", 1)
+                                img_data = base64.b64decode(encoded)
                                 annotated_image = Image.open(io.BytesIO(img_data))
-                            except:
+                            except Exception as img_error:
+                                st.warning(f"⚠️ Could not load annotated image: {img_error}")
                                 pass
                 
                 # Get nutrition analysis
