@@ -28,8 +28,12 @@ st.set_page_config(
 # Configuration
 # -----------------------------
 # Get API key from environment variable for deployment
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-GROQ_MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
+try:
+    GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
+    GROQ_MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
+except Exception:
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+    GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 
 # Class names - Synchronized with dataset/data.yaml
 CLASS_NAMES = [
@@ -266,10 +270,17 @@ with col_preview:
     if uploaded:
         # Read image data and store for later use
         image_bytes = uploaded.read()
-        image = Image.open(io.BytesIO(image_bytes))
-        st.session_state.uploaded_image_bytes = image_bytes
-        st.session_state.uploaded_image = image
-        st.image(image, caption="Pratinjau Gambar", use_container_width=True)
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+            # Convert image to RGB if it's not already (fixes some image format issues)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            st.session_state.uploaded_image_bytes = image_bytes
+            st.session_state.uploaded_image = image
+            st.image(image, caption="Pratinjau Gambar", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error loading image: {str(e)}")
+            st.stop()
 
 st.write("")
 st.write("")
@@ -288,7 +299,14 @@ if detect_btn and uploaded:
             else:
                 # Fallback: read from uploaded file
                 image_bytes = uploaded.read()
-                image = Image.open(io.BytesIO(image_bytes))
+                try:
+                    image = Image.open(io.BytesIO(image_bytes))
+                    # Convert image to RGB if it's not already
+                    if image.mode != 'RGB':
+                        image = image.convert('RGB')
+                except Exception as e:
+                    st.error(f"Error loading image: {str(e)}")
+                    st.stop()
             
             if mode == "Demo Mode":
                 # Demo simulation
@@ -325,6 +343,9 @@ if detect_btn and uploaded:
                         try:
                             mime, img_bytes = parse_data_url(img_data_url)
                             image = Image.open(io.BytesIO(img_bytes))
+                            # Convert image to RGB if it's not already
+                            if image.mode != 'RGB':
+                                image = image.convert('RGB')
                             st.image(image, caption="Gambar dengan Bounding Box", use_container_width=True)
                             st.download_button(
                                 label="Unduh Gambar Hasil",
