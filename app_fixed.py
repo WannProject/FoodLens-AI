@@ -14,7 +14,7 @@ from ultralytics import YOLO
 GROQ_API_KEY = "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"
 GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 HUGGINGFACE_API_URL = "https://wanndev14-yolo-api.hf.space"
-MODEL_PATH = "best.pt"
+MODEL_PATH = "runs/detect/train2/weights/best.pt"
 
 INDONESIAN_FOOD_CLASSES = [
     'ayam bakar', 'ayam goreng', 'bakso', 'bakwan', 'batagor', 'bihun', 'capcay', 'gado-gado',
