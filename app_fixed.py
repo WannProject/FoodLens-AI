@@ -8,7 +8,17 @@ import numpy as np
 import os
 import time
 from datetime import datetime
-from ultralytics import YOLO
+# Try to import YOLO, but handle ImportError gracefully
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError as e:
+    YOLO_AVAILABLE = False
+    YOLO_IMPORT_ERROR = str(e)
+    # Create a dummy YOLO class for type hints
+    class YOLO:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("YOLO not available")
 
 # ==================== CONFIGURATION ====================
 GROQ_API_KEY = "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"
@@ -35,6 +45,11 @@ st.set_page_config(
 def load_model():
     """Load model dengan fallback handling"""
     try:
+        if not YOLO_AVAILABLE:
+            st.warning("⚠️ YOLO/OpenCV tidak tersedia di environment ini")
+            st.info("🔄 Menggunakan API mode saja")
+            return None
+            
         if os.path.exists(MODEL_PATH):
             st.info("🔄 Loading model lokal...")
             model = YOLO(MODEL_PATH)
@@ -159,7 +174,12 @@ with st.sidebar:
     
     # Status
     st.subheader("📊 Status")
-    if model:
+    if not YOLO_AVAILABLE:
+        st.error("❌ YOLO/OpenCV Tidak Tersedia")
+        st.warning("🌐 Mode: API Only (HuggingFace)")
+        st.info(f"🔗 API: {HUGGINGFACE_API_URL}")
+        st.markdown("**Environment Streamlit Cloud tidak mendukung OpenCV**")
+    elif model:
         st.success("✅ Mode: Local (Model Loaded)")
         if os.path.exists(MODEL_PATH):
             size_mb = os.path.getsize(MODEL_PATH) / (1024 * 1024)
@@ -182,7 +202,10 @@ st.title("🍽️ Deteksi Gizi Makanan")
 st.write("Upload foto makanan untuk deteksi otomatis dan analisis gizi")
 
 # Tampilkan mode yang aktif
-if model:
+if not YOLO_AVAILABLE:
+    st.warning("🌐 **API Only Mode** - YOLO/OpenCV tidak tersedia di environment ini")
+    st.info("Menggunakan HuggingFace API untuk deteksi makanan")
+elif model:
     st.success("🖥️ **Local Mode** - Menggunakan model YOLO lokal (Lebih Cepat)")
 else:
     st.info("🌐 **API Mode** - Menggunakan HuggingFace API (Stabil)")
