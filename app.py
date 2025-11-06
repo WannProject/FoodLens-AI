@@ -334,7 +334,7 @@ with col_preview:
             # Convert image to RGB if it's not already (fixes some image format issues)
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-            st.image(image, caption="Pratinjau Gambar", use_container_width=True)
+            st.image(image, caption="Pratinjau Gambar", width=None)
         except Exception as e:
             st.error(f"❌ Error loading image: {str(e)}")
             st.session_state.processing_error = str(e)
@@ -419,7 +419,7 @@ if detect_btn and uploaded:
                             # Convert image to RGB if it's not already
                             if image.mode != 'RGB':
                                 image = image.convert('RGB')
-                            st.image(image, caption="Gambar dengan Bounding Box", use_container_width=True)
+                            st.image(image, caption="Gambar dengan Bounding Box", width=None)
                             st.download_button(
                                 label="Unduh Gambar Hasil",
                                 data=img_bytes,
