@@ -1,6 +1,7 @@
 # Dataset folders (too large for GitHub)
 Capstone-Bangkit-Academy-2023.v1i.yolov11/
 dataset/
+.roo/
 
 # Model files (too large for GitHub)
 # runs/
