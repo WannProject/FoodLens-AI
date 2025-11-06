@@ -394,7 +394,6 @@ if detect_btn and uploaded:
                             data=img_bytes,
                             file_name="hasil_deteksi.jpg",
                             mime=mime,
-                            use_column_width=True
                         )
                     except Exception as e:
                         st.warning(f"Gagal menampilkan gambar beranotasi: {e}")
@@ -426,11 +425,7 @@ if detect_btn and uploaded:
                         "Luas (px^2)": bbox_area(bbox)
                     })
                 df = pd.DataFrame(rows)
-                st.dataframe(
-                    df,
-                    use_column_width=True,
-                    hide_index=True
-                )
+                st.dataframe(df, hide_index=True)
             else:
                 st.info("Tidak ada objek yang memenuhi filter confidence saat ini.")
 

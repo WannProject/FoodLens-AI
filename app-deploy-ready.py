@@ -393,8 +393,7 @@ if detect_btn and uploaded:
                             label="Unduh Gambar Hasil",
                             data=img_bytes,
                             file_name="hasil_deteksi.jpg",
-                            mime=mime,
-                            use_column_width=True
+                            mime=mime
                         )
                     except Exception as e:
                         st.warning(f"Gagal menampilkan gambar beranotasi: {e}")
@@ -428,8 +427,8 @@ if detect_btn and uploaded:
                 df = pd.DataFrame(rows)
                 st.dataframe(
                     df,
-                    use_column_width=True,
-                    hide_index=True
+                    hide_index=True,
+                    use_container_width=True
                 )
             else:
                 st.info("Tidak ada objek yang memenuhi filter confidence saat ini.")
