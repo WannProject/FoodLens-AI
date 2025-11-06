@@ -27,8 +27,8 @@ st.set_page_config(
 # -----------------------------
 # Configuration
 # -----------------------------
-GROQ_API_KEY = "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"
-GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+GROQ_MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
 
 # Class names
 CLASS_NAMES = [
