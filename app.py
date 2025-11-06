@@ -4,28 +4,88 @@ import base64
 import io
 from PIL import Image
 import pandas as pd
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 import numpy as np
 import cv2
 import os
 import tempfile
 import time
+from ultralytics import YOLO
 
-
-HUGGINGFACE_SPACE = "https://wanndev14-yolo-api.huggingface.space"
-HUGGINGFACE_API_URL = HUGGINGFACE_SPACE  # Add this for backward compatibility
+# Optional Ngrok import
+try:
+    import pyngrok
+    from pyngrok import ngrok
+    NGROK_AVAILABLE = True
+except ImportError:
+    NGROK_AVAILABLE = False
+    pyngrok = None
+    ngrok = None
+from datetime import datetime
 
 # -----------------------------
-# Initialize Session State
+# Configuration & Constants
+# -----------------------------
+# Hardcoded API Key - FIX untuk error st.secrets
+GROQ_API_KEY = "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"
+GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
+
+# Indonesian food classes (29 classes)
+INDONESIAN_FOOD_CLASSES = [
+    'ayam bakar', 'ayam goreng', 'bakso', 'bakwan', 'batagor', 'bihun', 'capcay', 'gado-gado',
+    'ikan goreng', 'kerupuk', 'martabak telur', 'mie', 'nasi goreng', 'nasi putih', 'nugget',
+    'opor ayam', 'pempek', 'rendang', 'roti', 'sate', 'sosis', 'soto', 'steak', 'tahu',
+    'telur', 'tempe', 'terong balado', 'tumis kangkung', 'udang'
+]
+
+# Default model path (absolute path to avoid relative path issues)
+DEFAULT_MODEL_PATH = os.path.join(os.getcwd(), "runs", "detect", "train2", "weights", "best.pt")
+
+# Colors for bounding boxes (BGR format for OpenCV)
+BOX_COLOR = (0, 255, 0)  # Green
+TEXT_COLOR = (0, 0, 0)   # Black
+
+# -----------------------------
+# Page Configuration
+# -----------------------------
+st.set_page_config(
+    page_title="DataLens-AI Deteksi Makanan",
+    page_icon="🍽️",
+    layout="wide",
+    menu_items={
+        "Get Help": "https://docs.streamlit.io/",
+        "Report a bug": "https://github.com/streamlit/streamlit/issues",
+        "About": "UI Streamlit untuk Deteksi Gizi Makanan (YOLO + LLM)"
+    }
+)
+
+# -----------------------------
+# Session State Management
 # -----------------------------
 def initialize_session_state():
-    """Initialize session state variables to prevent SessionInfo errors"""
-    if 'upload_initialized' not in st.session_state:
-        st.session_state.upload_initialized = False
-    if 'current_file' not in st.session_state:
-        st.session_state.current_file = None
-    if 'processing_error' not in st.session_state:
-        st.session_state.processing_error = None
+    """Initialize all session state variables"""
+    session_vars = {
+        'upload_initialized': False,
+        'current_file': None,
+        'processing_error': None,
+        'model_loaded': False,
+        'model_path': DEFAULT_MODEL_PATH,
+        'detection_results': None,
+        'current_image': None,
+        'ngrok_url': None,
+        'ngrok_active': False,
+        'processing': False,
+        'error_message': None,
+        'success_message': None,
+        'confidence_threshold': 0.5,
+        'last_detection_time': None,
+        'detection_history': [],
+        'mode': 'Local Mode'
+    }
+    
+    for var, default_value in session_vars.items():
+        if var not in st.session_state:
+            st.session_state[var] = default_value
 
 # Initialize session state early
 try:
@@ -36,59 +96,203 @@ except Exception as e:
     st.session_state.upload_initialized = False
 
 # -----------------------------
-# Konfigurasi Halaman
+# Custom CSS Styles
 # -----------------------------
-st.set_page_config(
-    page_title="Deteksi Gizi Makanan",
-    page_icon="🍽️",
-    layout="wide",
-    menu_items={
-        "Get Help": "https://docs.streamlit.io/",
-        "Report a bug": "https://github.com/streamlit/streamlit/issues",
-        "About": "UI Streamlit untuk Deteksi Gizi Makanan (YOLO + LLM)."
+def inject_custom_styles():
+    """Inject custom CSS for better UI"""
+    st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        text-align: center;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1rem;
     }
-)
+    
+    .chip {
+        display: inline-block;
+        padding: 6px 12px;
+        margin: 4px 6px 0 0;
+        border-radius: 16px;
+        background: #e3f2fd;
+        color: #1976d2;
+        font-size: 12px;
+        border: 1px solid #bbdefb;
+        white-space: nowrap;
+    }
+    
+    .metric-card {
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid #E5E7EB;
+        background: #FFFFFF;
+    }
+    
+    .status-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    
+    .status-online { background-color: #4caf50; }
+    .status-offline { background-color: #f44336; }
+    .status-loading { background-color: #ff9800; }
+    
+    .ngrok-url {
+        background: #f0f8ff;
+        border: 1px solid #4169e1;
+        border-radius: 8px;
+        padding: 10px;
+        margin: 10px 0;
+        font-family: monospace;
+        word-break: break-all;
+    }
+    
+    .download-btn {
+        background: linear-gradient(45deg, #2196F3, #21CBF3);
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 25px;
+        cursor: pointer;
+        font-weight: bold;
+        text-decoration: none;
+        display: inline-block;
+        margin: 10px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # -----------------------------
-# Error Handling and Fallback
+# Model Loading Functions
 # -----------------------------
-def handle_streamlit_errors():
-    """Handle common Streamlit errors gracefully"""
+@st.cache_resource(show_spinner="Loading YOLO model...")
+def load_yolo_model(model_path: str) -> Optional[YOLO]:
+    """
+    Load YOLO model with caching for performance
+    """
     try:
-        # Test if session state is accessible
-        _ = st.session_state
-        return True
+        if not os.path.exists(model_path):
+            st.error(f"❌ Model file not found: {model_path}")
+            return None
+            
+        model = YOLO(model_path)
+        st.success(f"✅ Model loaded successfully: {model_path}")
+        return model
+        
     except Exception as e:
-        st.error(f"❌ Streamlit session error: {str(e)}")
-        st.info("🔄 Refreshing page...")
-        time.sleep(2)
-        st.rerun()
-        return False
+        st.error(f"❌ Error loading model: {str(e)}")
+        return None
 
 # -----------------------------
-# Configuration
+# Image Processing Functions
 # -----------------------------
-# Get API key from environment variable for deployment
-try:
-    GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
-    GROQ_MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
-except Exception:
-    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-    GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
+def preprocess_image(image: Image.Image) -> np.ndarray:
+    """
+    Preprocess PIL image for YOLO detection
+    """
+    # Convert PIL to numpy array (RGB to BGR for OpenCV)
+    image_array = np.array(image)
+    if image_array.shape[2] == 3:  # RGB
+        image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+    
+    return image_array
 
-# Class names - Synchronized with dataset/data.yaml
-CLASS_NAMES = [
-    'ayam bakar', 'ayam goreng', 'bakso', 'bakwan', 'batagor', 'bihun', 'capcay', 'gado-gado',
-    'ikan goreng', 'kerupuk', 'martabak telur', 'mie', 'nasi goreng', 'nasi putih', 'nugget',
-    'opor ayam', 'pempek', 'rendang', 'roti', 'sate', 'sosis', 'soto', 'steak', 'tahu',
-    'telur', 'tempe', 'terong balado', 'tumis kangkung', 'udang'
-]
+def detect_food_objects(model: YOLO, image: np.ndarray, confidence_threshold: float = 0.5) -> List[Dict]:
+    """
+    Perform food detection using YOLO model
+    """
+    try:
+        # Run inference
+        results = model(image)[0]
+        
+        detected_objects = []
+        food_names = []
+        
+        for box in results.boxes:
+            # Extract bounding box and confidence
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            confidence = float(box.conf[0])
+            class_id = int(box.cls[0])
+            
+            # Filter by confidence threshold
+            if confidence >= confidence_threshold:
+                # Get class name
+                if class_id < len(INDONESIAN_FOOD_CLASSES):
+                    class_name = INDONESIAN_FOOD_CLASSES[class_id]
+                else:
+                    class_name = f"Unknown_{class_id}"
+                
+                detected_objects.append({
+                    "nama": class_name,
+                    "confidence": confidence,
+                    "bbox": [x1, y1, x2, y2],
+                    "class_id": class_id
+                })
+                food_names.append(class_name)
+        
+        return detected_objects, food_names
+        
+    except Exception as e:
+        st.error(f"❌ Error during detection: {str(e)}")
+        return [], []
+
+def draw_bounding_boxes(image: np.ndarray, detections: List[Dict]) -> np.ndarray:
+    """
+    Draw bounding boxes and labels on image
+    """
+    # Create a copy to avoid modifying the original
+    annotated_image = image.copy()
+    
+    for detection in detections:
+        x1, y1, x2, y2 = detection["bbox"]
+        confidence = detection["confidence"]
+        class_name = detection["nama"]
+        
+        # Draw bounding box
+        cv2.rectangle(annotated_image, (x1, y1), (x2, y2), BOX_COLOR, 2)
+        
+        # Prepare label text
+        label = f"{class_name} ({confidence:.2f})"
+        
+        # Calculate text size for background
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+        
+        # Draw text background
+        cv2.rectangle(
+            annotated_image,
+            (x1, y1 - text_height - baseline - 5),
+            (x1 + text_width, y1),
+            BOX_COLOR,
+            -1
+        )
+        
+        # Draw text
+        cv2.putText(
+            annotated_image,
+            label,
+            (x1, y1 - baseline - 5),
+            font,
+            font_scale,
+            TEXT_COLOR,
+            thickness
+        )
+    
+    return annotated_image
 
 # -----------------------------
 # Helper Functions
 # -----------------------------
 def parse_data_url(data_url: str) -> Tuple[str, bytes]:
-    """Mem-parse data URL "data:<mime>;base64,<payload>" menjadi (mime, bytes)"""
+    """Parse data URL menjadi (mime, bytes)"""
     if not data_url.startswith("data:"):
         raise ValueError("Bukan data URL yang valid")
     header, b64data = data_url.split(",", 1)
@@ -100,33 +304,63 @@ def chip(text: str) -> str:
     """Menghasilkan HTML sederhana untuk chip/tag."""
     return f'<span class="chip">{text}</span>'
 
-def inject_style():
-    st.markdown("""
-    <style>
-    .chip {
-        display: inline-block;
-        padding: 6px 12px;
-        margin: 4px 6px 0 0;
-        border-radius: 16px;
-        background: #EEF2FF;
-        color: #3730A3;
-        font-size: 12px;
-        border: 1px solid #E0E7FF;
-        white-space: nowrap;
+def image_to_base64(image: np.ndarray, format: str = 'jpg') -> str:
+    """Convert image array to base64 string"""
+    try:
+        _, img_encoded = cv2.imencode(f'.{format}', image)
+        img_base64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
+        return f"data:image/{format};base64," + img_base64
+    except Exception as e:
+        st.error(f"❌ Error encoding image: {str(e)}")
+        return ""
+
+def format_detection_time() -> str:
+    """Format current time for display"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def calculate_detection_stats(detections: List[Dict]) -> Dict:
+    """Calculate statistics from detection results"""
+    if not detections:
+        return {
+            "total_objects": 0,
+            "unique_foods": 0,
+            "avg_confidence": 0.0,
+            "highest_confidence": 0.0
+        }
+    
+    total_objects = len(detections)
+    unique_foods = len(set(d["nama"] for d in detections))
+    avg_confidence = sum(d["confidence"] for d in detections) / total_objects
+    highest_confidence = max(d["confidence"] for d in detections)
+    
+    return {
+        "total_objects": total_objects,
+        "unique_foods": unique_foods,
+        "avg_confidence": round(avg_confidence, 3),
+        "highest_confidence": round(highest_confidence, 3)
     }
-    .metric-card {
-        padding: 14px 16px;
-        border-radius: 12px;
-        border: 1px solid #E5E7EB;
-        background: #FFFFFF;
+
+def save_to_history(detection_results: Dict):
+    """Save detection results to session history"""
+    if 'detection_history' not in st.session_state:
+        st.session_state.detection_history = []
+    
+    history_entry = {
+        "timestamp": detection_results["timestamp"],
+        "detections": detection_results["detections"],
+        "stats": detection_results["stats"]
     }
-    </style>
-    """, unsafe_allow_html=True)
+    
+    st.session_state.detection_history.append(history_entry)
+    
+    # Keep only last 10 detections
+    if len(st.session_state.detection_history) > 10:
+        st.session_state.detection_history = st.session_state.detection_history[-10:]
 
 def get_nutritional_analysis(detected_foods):
     """Get nutritional analysis from Groq API"""
     if not GROQ_API_KEY:
-        return "⚠️ Groq API key not configured. Please set GROQ_API_KEY environment variable."
+        return "⚠️ Groq API key not configured."
     
     makanan_str = ', '.join(list(set(detected_foods)))
     if not makanan_str:
@@ -157,96 +391,8 @@ def get_nutritional_analysis(detected_foods):
     except Exception as e:
         return f"❌ Error getting nutritional analysis: {str(e)}"
 
-def test_api_connection(api_url):
-    """Test connection to HuggingFace API before detection"""
-    try:
-        st.info("🔍 Testing API connection...")
-        response = requests.get(f"{api_url}", timeout=10)
-        
-        # Show response info for debugging
-        st.info(f"📊 Status Code: {response.status_code}")
-        if response.status_code == 200:
-            st.success("✅ API connection successful!")
-            st.info(f"📄 Response: {response.text[:200]}...")
-            return True
-        else:
-            st.warning(f"⚠️ API returned status code: {response.status_code}")
-            st.info(f"📄 Response: {response.text[:200]}...")
-            return False
-    except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to API - Space might be sleeping")
-        return False
-    except Exception as e:
-        st.error(f"❌ Connection test failed: {str(e)}")
-        return False
-
-def detect_with_api(image_data, api_url=HUGGINGFACE_SPACE):
-    """Try to detect using external API"""
-    try:
-        files = {"image": image_data}
-        # Try multiple endpoints for HuggingFace compatibility
-        endpoints = [
-            f"{api_url}/detect",
-            f"{api_url}/predict",
-            f"{api_url}/api/predict",
-            f"{api_url}/detect-gizi",
-            f"{api_url}/"
-        ]
-        
-        # Test connection first
-        if not test_api_connection(api_url):
-            st.info("💡 Tips: Buka link HuggingFace Space untuk 'wake up' dari sleep mode")
-            return None
-        
-        for i, endpoint in enumerate(endpoints):
-            try:
-                st.info(f"🔄 [{i+1}/{len(endpoints)}] Trying endpoint: {endpoint}")
-                
-                # Try with different methods
-                methods = ["POST", "GET"]
-                for method in methods:
-                    try:
-                        if method == "POST":
-                            response = requests.post(endpoint, files=files, timeout=90)
-                        else:
-                            response = requests.get(endpoint, timeout=90)
-                        
-                        st.info(f"📊 {method} {endpoint} - Status: {response.status_code}")
-                        
-                        if response.status_code == 200:
-                            st.success(f"✅ Success with {method} {endpoint}!")
-                            return response.json()
-                        elif response.status_code == 404:
-                            st.warning(f"⚠️ {method} {endpoint} - Not Found")
-                            continue
-                        elif response.status_code == 405:
-                            st.warning(f"⚠️ {method} {endpoint} - Method Not Allowed")
-                            continue
-                        else:
-                            st.info(f"📄 {method} Response: {response.text[:200]}...")
-                            
-                    except requests.exceptions.HTTPError as http_err:
-                        st.warning(f"⚠️ HTTP Error with {method} {endpoint}: {http_err}")
-                        continue
-                        
-            except Exception as e:
-                st.error(f"❌ Error with endpoint {endpoint}: {str(e)}")
-                continue
-        
-        st.error("❌ Semua endpoint API gagal. Pastikan HuggingFace Space sudah berjalan dengan benar.")
-        st.info("💡 **Debugging Tips:**")
-        st.info("1. Check your HuggingFace Space app.py for the correct route definitions")
-        st.info("2. Make sure the endpoints accept image files")
-        st.info("3. Check if the API expects different parameter names")
-        return None
-        
-    except Exception as e:
-        st.error(f"❌ API Error: {str(e)}")
-        return None
-
 def create_demo_detection(image):
     """Create demo detection results for testing"""
-    # Generate random but realistic detections
     import random
     
     # Sample Indonesian food detections with reasonable confidence
@@ -308,287 +454,232 @@ def create_demo_detection(image):
         "annotated_image": image_array
     }
 
-# -----------------------------
-# Sidebar
-# -----------------------------
-with st.sidebar:
-    st.header("⚙️ Pengaturan")
-    
-    # Mode selection
-    mode = st.radio(
-        "Mode Deteksi",
-        options=["Demo Mode", "API Mode"],
-        help="Demo: Mode simulasi untuk testing (Direkomendasikan). API: Gunakan server API eksternal."
-    )
-    
-    if mode == "Demo Mode":
-        st.info("🎭 Demo Mode - Menampilkan hasil simulasi")
-        st.caption("Tidak memerlukan model file untuk testing.")
-    else:
-        st.info("🔌 API Mode - Menghubungkan ke HuggingFace API")
-        st.caption("Menggunakan API yang sudah di-deploy ke HuggingFace Spaces")
+def perform_local_detection(image: Image.Image):
+    """Perform food detection using local YOLO model"""
+    try:
+        st.session_state.processing = True
+        st.session_state.error_message = None
         
-        api_url = st.text_input(
-            "HuggingFace API URL",
-            value=HUGGINGFACE_SPACE,
-            help="URL untuk HuggingFace Space API deteksi makanan. Coba: https://wanndev14-yolo-api.huggingface.space"
-        )
+        # Show progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        # Add option to try alternative URLs
-        with st.expander("🔧 Alternative URLs"):
-            st.code("https://wanndev14-yolo-api.huggingface.space")
-            st.code("https://huggingface.co/spaces/wanndev14/yolo-api")
-            st.code("http://localhost:7860 (for local testing)")
-            
-            if st.button("🔄 Use HuggingFace Space URL"):
-                api_url = "https://wanndev14-yolo-api.huggingface.space"
-                st.success(f"✅ URL changed to: {api_url}")
-                st.rerun()
-    
-    # API Key configuration
-    if not GROQ_API_KEY:
-        st.warning("⚠️ Groq API Key not configured")
-        api_key_input = st.text_input(
-            "Enter Groq API Key",
-            type="password",
-            help="Get your API key from https://console.groq.com/"
+        # Step 1: Preprocess image
+        status_text.text("🔄 Preprocessing image...")
+        progress_bar.progress(20)
+        image_array = preprocess_image(image)
+        time.sleep(0.5)
+        
+        # Step 2: Run detection
+        status_text.text("🔍 Detecting food objects...")
+        progress_bar.progress(40)
+        detections, food_names = detect_food_objects(
+            st.session_state.model,
+            image_array,
+            st.session_state.confidence_threshold
         )
-        if api_key_input:
-            os.environ["GROQ_API_KEY"] = api_key_input
-            st.success("✅ API Key configured!")
-            st.rerun()
-    else:
-        st.success("✅ Groq API Key configured")
-    
-    conf_filter = st.slider(
-        "Filter Confidence",
-        min_value=0.0, max_value=1.0, value=0.0, step=0.05
-    )
-    render_markdown_table = st.toggle(
-        "Render Tabel Gizi sebagai Markdown",
-        value=True,
-        help="Jika dimatikan, akan ditampilkan sebagai teks apa adanya."
-    )
-
-inject_style()
+        time.sleep(0.5)
+        
+        # Step 3: Draw bounding boxes
+        status_text.text("🎨 Drawing bounding boxes...")
+        progress_bar.progress(60)
+        annotated_image = draw_bounding_boxes(image_array, detections)
+        time.sleep(0.5)
+        
+        # Step 4: Get nutritional analysis
+        status_text.text("🥗 Analyzing nutrition...")
+        progress_bar.progress(80)
+        nutritional_info = get_nutritional_analysis(food_names)
+        time.sleep(0.5)
+        
+        # Step 5: Finalize
+        status_text.text("✅ Selesai!")
+        progress_bar.progress(100)
+        
+        # Store results
+        results = {
+            "detections": detections,
+            "annotated_image": annotated_image,
+            "nutritional_info": nutritional_info,
+            "stats": calculate_detection_stats(detections),
+            "timestamp": format_detection_time()
+        }
+        
+        st.session_state.detection_results = results
+        
+        # Save to history
+        save_to_history(results)
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.session_state.processing = False
+        st.session_state.success_message = "Deteksi berhasil!"
+        st.rerun()
+        
+    except Exception as e:
+        st.session_state.processing = False
+        st.session_state.error_message = f"❌ Error during detection: {str(e)}"
+        st.error(st.session_state.error_message)
 
 # -----------------------------
+# Main Application
+# -----------------------------
+inject_custom_styles()
+
 # Header
-# -----------------------------
-st.title("🍽️ Deteksi Gizi Makanan")
+st.markdown('<h1 class="main-header">🍽️ DataLens-AI Food Detection</h1>', unsafe_allow_html=True)
 st.write(
-    "Unggah foto makanan, sistem akan mendeteksi objek (makanan) dengan YOLO dan meminta LLM untuk "
-    "menyusun tabel kandungan gizi. Hasil deteksi divisualisasikan dengan bounding box."
+    "Sistem deteksi makanan Indonesia menggunakan **YOLOv11** untuk deteksi objek dan **Groq LLM** "
+    "untuk analisis gizi. Upload gambar makanan dan dapatkan informasi gizi lengkap dalam bahasa Indonesia."
 )
 
-# Show current mode status
-if mode == "Demo Mode":
-    st.success("🎭 **Demo Mode Aktif** - Siap untuk testing tanpa API server")
-    st.caption("💡 Demo Mode menggunakan simulasi deteksi dengan Groq API untuk analisis gizi")
-else:
-    st.warning("🔌 **API Mode Aktif** - Menghubungkan ke HuggingFace API")
-    st.caption(f"🌐 Target API: {api_url}")
-    st.caption("⚠️ Pastikan HuggingFace Space sudah berjalan atau gunakan Demo Mode")
+# Simple Mode - langsung pakai Local Mode saja
+st.success("🖥️ **Local Mode Aktif** - Menggunakan model YOLO lokal")
 
-# -----------------------------
-# Upload & Action
-# -----------------------------
-# File upload with proper session state handling
-col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
+# File upload
+uploaded = st.file_uploader(
+    "Unggah Gambar (JPG/PNG)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=False,
+    key="food_image_uploader"
+)
 
-uploaded = None
-try:
-    # Add a small delay to ensure session is fully initialized
-    if not st.session_state.upload_initialized:
-        time.sleep(0.1)
-    
-    uploaded = st.file_uploader(
-        "Unggah Gambar (JPG/PNG)",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=False,
-        key="food_image_uploader"  # Add key to prevent state conflicts
-    )
-    
-    # Update session state with current file
-    if uploaded is not None:
-        if st.session_state.current_file != uploaded.name:
-            st.session_state.current_file = uploaded.name
-            st.session_state.processing_error = None
-    else:
-        st.session_state.current_file = None
-        
-except Exception as e:
-    st.error(f"❌ Error initializing file uploader: {str(e)}")
-    st.session_state.processing_error = str(e)
-    uploaded = None
-
-# Handle file preview with error handling
-with col_preview:
-    if uploaded:
-        try:
-            # Reset file pointer to beginning
-            uploaded.seek(0)
-            image = Image.open(uploaded)
-            # Convert image to RGB if it's not already (fixes some image format issues)
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            st.image(image, caption="Pratinjau Gambar", width=None)
-        except Exception as e:
-            st.error(f"❌ Error loading image: {str(e)}")
-            st.session_state.processing_error = str(e)
-            uploaded = None
-    else:
-        st.info("📷 Silakan unggah gambar makanan untuk memulai deteksi")
-
-st.write("")
-st.write("")
-
-# Disable button if no file or there's a processing error
-detect_btn_disabled = uploaded is None or st.session_state.processing_error is not None
-detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=detect_btn_disabled)
-
-# Show error message if there's a processing error
-if st.session_state.processing_error:
-    st.error(f"❌ Processing Error: {st.session_state.processing_error}")
-
-# -----------------------------
-# Hasil
-# -----------------------------
-if detect_btn and uploaded:
+# Handle file preview
+if uploaded:
     try:
-        # Clear any previous processing errors
-        st.session_state.processing_error = None
-        
+        uploaded.seek(0)
+        image = Image.open(uploaded)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        st.image(image, caption="Pratinjau Gambar", width='stretch')
+    except Exception as e:
+        st.error(f"❌ Error loading preview: {str(e)}")
+        uploaded = None
+else:
+    st.info("📷 Silakan unggah gambar makanan untuk memulai deteksi")
+
+# Load model button
+if not st.session_state.model_loaded:
+    st.info("📁 Load model terlebih dahulu")
+    if st.button("🔄 Load YOLO Model", type="primary"):
+        with st.spinner("Loading model..."):
+            model = load_yolo_model(st.session_state.model_path)
+            if model:
+                st.session_state.model = model
+                st.session_state.model_loaded = True
+                st.rerun()
+            else:
+                st.error("❌ Gagal load model")
+
+# Detection button
+if uploaded and st.session_state.model_loaded:
+    if st.button("🔎 Deteksi Gizi", type="primary"):
         with st.spinner("Memproses..."):
-            # Read image directly from uploaded file with additional error handling
             try:
-                uploaded.seek(0)  # Reset file pointer
+                uploaded.seek(0)
                 image_bytes = uploaded.read()
                 
                 if not image_bytes:
                     raise ValueError("File is empty or could not be read")
                 
                 image = Image.open(io.BytesIO(image_bytes))
-                # Convert image to RGB if it's not already
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                     
-            except Exception as e:
-                error_msg = f"❌ Error loading image: {str(e)}"
-                st.error(error_msg)
-                st.session_state.processing_error = str(e)
-                st.stop()
-            
-            if mode == "Demo Mode":
-                # Demo simulation
-                st.success("🎭 Demo Mode - Simulating detection results...")
-                result = create_demo_detection(image)
-                
-            else:
-                # API Mode
-                st.info("🔌 Menghubungkan ke HuggingFace API...")
-                st.info(f"🌐 API URL: {api_url}")
-                
-                # Try API detection
-                result = detect_with_api(io.BytesIO(image_bytes), api_url)
-                
-                if result is None:
-                    st.error("❌ Tidak dapat terhubung ke HuggingFace API.")
-                    st.info("💡 **Solusi:**")
-                    st.info("1. Pastikan HuggingFace Space sudah berjalan: https://huggingface.co/spaces/wanndev14/yolo-api")
-                    st.info("2. Check jika Space sedang dalam mode sleep (buka link untuk wake up)")
-                    st.info("3. Atau gunakan **Demo Mode** di sidebar untuk testing langsung")
-                    st.info("4. Pastikan endpoint `/detect-gizi` atau `/predict` tersedia di API kamu")
-                    st.stop()
-            
-            # Validasi respon
-            if not isinstance(result, dict):
-                st.error("Format respon tidak sesuai.")
-            else:
-                # Gambar beranotasi
-                img_data_url = result.get("image")
-                objects = result.get("objects", [])
-                gizi_text = result.get("gizi", "")
-
-                # Bagian atas: Gambar & Ringkasan
-                left, right = st.columns([3, 2], gap="large")
-
-                with left:
-                    st.subheader("📷 Hasil Deteksi")
-                    if img_data_url:
-                        try:
-                            mime, img_bytes = parse_data_url(img_data_url)
-                            image = Image.open(io.BytesIO(img_bytes))
-                            # Convert image to RGB if it's not already
-                            if image.mode != 'RGB':
-                                image = image.convert('RGB')
-                            st.image(image, caption="Gambar dengan Bounding Box", width=None)
-                            st.download_button(
-                                label="Unduh Gambar Hasil",
-                                data=img_bytes,
-                                file_name="hasil_deteksi.jpg",
-                                mime=mime,
-                            )
-                        except Exception as e:
-                            st.warning(f"Gagal menampilkan gambar beranotasi: {e}")
-                    else:
-                        st.info("Tidak ada gambar beranotasi yang dikembalikan.")
-
-                # Detail objek
-                st.subheader("📦 Detail Objek Terdeteksi")
-                # Filter berdasarkan threshold untuk tampilan
-                filtered = [o for o in objects if float(o.get("confidence", 0.0)) >= conf_filter]
-                if filtered:
-                    # Bentuk tabel data
-                    def bbox_area(b):
-                        try:
-                            x1, y1, x2, y2 = b
-                            return max(0, x2 - x1) * max(0, y2 - y1)
-                        except Exception:
-                            return None
-
-                    rows = []
-                    for o in filtered:
-                        nama = o.get("nama", "-")
-                        conf = float(o.get("confidence", 0.0))
-                        bbox = o.get("bbox", [None, None, None, None])
-                        rows.append({
-                            "Nama": nama,
-                            "Confidence": round(conf, 4),
-                            "BBox": bbox,
-                            "Luas (px^2)": bbox_area(bbox)
-                        })
-                    df = pd.DataFrame(rows)
-                    st.dataframe(df, hide_index=True)
-                else:
-                    st.info("Tidak ada objek yang memenuhi filter confidence saat ini.")
-
-                # Tabel gizi (Markdown dari LLM)
-                st.subheader("🥗 Kandungan Gizi")
-                if gizi_text:
-                    if render_markdown_table:
-                        st.markdown(gizi_text)
-                    else:
-                        st.text(gizi_text)
-                else:
-                    st.info("Tidak ada analisis gizi yang dikembalikan.")
+                perform_local_detection(image)
                     
-        st.toast("✅ Selesai memproses", icon="✅")
-        
-    except Exception as e:
-        error_msg = f"❌ Terjadi kesalahan saat memproses: {str(e)}"
-        st.error(error_msg)
-        st.session_state.processing_error = str(e)
-        # Provide user-friendly error message
-        if "SessionInfo" in str(e):
-            st.info("💡 Tips: Refresh halaman dan coba upload gambar kembali.")
-        st.exception(e)
+            except Exception as e:
+                st.error(f"❌ Error loading image: {str(e)}")
 
-# -----------------------------
+# Display results
+if st.session_state.detection_results:
+    results = st.session_state.detection_results
+    
+    st.subheader("🎯 Hasil Deteksi")
+    
+    # Success message
+    if st.session_state.success_message:
+        st.success(st.session_state.success_message)
+    
+    # Statistics
+    stats = results["stats"]
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Objek", stats["total_objects"])
+    with col2:
+        st.metric("Jenis Makanan", stats["unique_foods"])
+    with col3:
+        st.metric("Rata-rata Confidence", stats["avg_confidence"])
+    with col4:
+        st.metric("Confidence Tertinggi", stats["highest_confidence"])
+    
+    # Display timestamp
+    st.caption(f"🕒 Deteksi pada: {results['timestamp']}")
+    
+    # Results columns
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("### 📷 Gambar dengan Deteksi")
+        
+        # Convert and display annotated image
+        annotated_image = results["annotated_image"]
+        annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
+        
+        st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
+        
+        # Download button
+        img_base64 = image_to_base64(annotated_image)
+        if img_base64:
+            st.markdown("### 💾 Download")
+            st.markdown(
+                f'<a href="{img_base64}" download="detected_food.jpg" class="download-btn">📥 Unduh Gambar Hasil</a>',
+                unsafe_allow_html=True
+            )
+    
+    with col2:
+        st.markdown("### 📦 Detail Deteksi")
+        
+        detections = results["detections"]
+        if detections:
+            # Create detection table
+            detection_data = []
+            for i, det in enumerate(detections, 1):
+                detection_data.append({
+                    "No": i,
+                    "Makanan": det["nama"],
+                    "Confidence": f"{det['confidence']:.3f}",
+                    "Posisi": f"({det['bbox'][0]}, {det['bbox'][1]})"
+                })
+            
+            df = pd.DataFrame(detection_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Food tags
+            st.markdown("### 🏷️ Makanan Terdeteksi")
+            food_tags = ""
+            for food in set(det["nama"] for det in detections):
+                food_tags += f'<span class="chip">{food}</span>'
+            st.markdown(food_tags, unsafe_allow_html=True)
+        else:
+            st.info("Tidak ada objek terdeteksi dengan confidence threshold saat ini.")
+    
+    # Nutritional Information
+    st.markdown("### 🥗 Analisis Gizi")
+    nutritional_info = results["nutritional_info"]
+    
+    if nutritional_info:
+        # Check if response contains table format
+        if "|" in nutritional_info and "-" in nutritional_info:
+            st.markdown(nutritional_info)
+        else:
+            st.text_area("Informasi Gizi", nutritional_info, height=200)
+    else:
+        st.info("Tidak ada informasi gizi tersedia.")
+
 # Footer
-# -----------------------------
 st.markdown("---")
-if mode == "Demo Mode":
-    st.markdown("**Mode:** Demo Simulation | **Status:** Ready for Testing")
-else:
-    st.markdown("**Mode:** API Detection | **Model:** YOLOv11 | **LLM:** Groq Llama-3.1-70B")
+st.markdown("**Mode:** Local Detection | **Model:** YOLOv11 | **LLM:** Groq Llama-4")

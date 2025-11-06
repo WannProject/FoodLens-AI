@@ -4,7 +4,7 @@ import json
 url = "https://wanndev14-yolo-api.hf.space/detect-gizi"
 
 try:
-    with open("bakso.jpg", "rb") as f:
+    with open("bakso.jpg", "rb") as f: 
         files = {"image": f}
         response = requests.post(url, files=files, timeout=30)
     
