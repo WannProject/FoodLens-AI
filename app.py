@@ -12,7 +12,7 @@ import tempfile
 import time
 
 
-HUGGINGFACE_SPACE = "https://huggingface.co/spaces/wanndev14/yolo-api"
+HUGGINGFACE_SPACE = "https://wanndev14-yolo-api.huggingface.space"
 HUGGINGFACE_API_URL = HUGGINGFACE_SPACE  # Add this for backward compatibility
 
 # -----------------------------
@@ -162,11 +162,16 @@ def test_api_connection(api_url):
     try:
         st.info("🔍 Testing API connection...")
         response = requests.get(f"{api_url}", timeout=10)
+        
+        # Show response info for debugging
+        st.info(f"📊 Status Code: {response.status_code}")
         if response.status_code == 200:
             st.success("✅ API connection successful!")
+            st.info(f"📄 Response: {response.text[:200]}...")
             return True
         else:
             st.warning(f"⚠️ API returned status code: {response.status_code}")
+            st.info(f"📄 Response: {response.text[:200]}...")
             return False
     except requests.exceptions.ConnectionError:
         st.error("❌ Cannot connect to API - Space might be sleeping")
@@ -181,9 +186,10 @@ def detect_with_api(image_data, api_url=HUGGINGFACE_SPACE):
         files = {"image": image_data}
         # Try multiple endpoints for HuggingFace compatibility
         endpoints = [
-            f"{api_url}/detect-gizi",
+            f"{api_url}/detect",
             f"{api_url}/predict",
-            f"{api_url}/api/detect",
+            f"{api_url}/api/predict",
+            f"{api_url}/detect-gizi",
             f"{api_url}/"
         ]
         
@@ -192,22 +198,46 @@ def detect_with_api(image_data, api_url=HUGGINGFACE_SPACE):
             st.info("💡 Tips: Buka link HuggingFace Space untuk 'wake up' dari sleep mode")
             return None
         
-        for endpoint in endpoints:
+        for i, endpoint in enumerate(endpoints):
             try:
-                st.info(f"🔄 Trying endpoint: {endpoint}")
-                response = requests.post(endpoint, files=files, timeout=90)
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.HTTPError as http_err:
-                if response.status_code == 404:
-                    continue  # Try next endpoint
-                else:
-                    raise http_err
-            except requests.exceptions.ConnectionError:
-                st.error(f"❌ Tidak dapat terhubung ke API server di: {endpoint}")
+                st.info(f"🔄 [{i+1}/{len(endpoints)}] Trying endpoint: {endpoint}")
+                
+                # Try with different methods
+                methods = ["POST", "GET"]
+                for method in methods:
+                    try:
+                        if method == "POST":
+                            response = requests.post(endpoint, files=files, timeout=90)
+                        else:
+                            response = requests.get(endpoint, timeout=90)
+                        
+                        st.info(f"📊 {method} {endpoint} - Status: {response.status_code}")
+                        
+                        if response.status_code == 200:
+                            st.success(f"✅ Success with {method} {endpoint}!")
+                            return response.json()
+                        elif response.status_code == 404:
+                            st.warning(f"⚠️ {method} {endpoint} - Not Found")
+                            continue
+                        elif response.status_code == 405:
+                            st.warning(f"⚠️ {method} {endpoint} - Method Not Allowed")
+                            continue
+                        else:
+                            st.info(f"📄 {method} Response: {response.text[:200]}...")
+                            
+                    except requests.exceptions.HTTPError as http_err:
+                        st.warning(f"⚠️ HTTP Error with {method} {endpoint}: {http_err}")
+                        continue
+                        
+            except Exception as e:
+                st.error(f"❌ Error with endpoint {endpoint}: {str(e)}")
                 continue
         
         st.error("❌ Semua endpoint API gagal. Pastikan HuggingFace Space sudah berjalan dengan benar.")
+        st.info("💡 **Debugging Tips:**")
+        st.info("1. Check your HuggingFace Space app.py for the correct route definitions")
+        st.info("2. Make sure the endpoints accept image files")
+        st.info("3. Check if the API expects different parameter names")
         return None
         
     except Exception as e:
@@ -301,8 +331,19 @@ with st.sidebar:
         api_url = st.text_input(
             "HuggingFace API URL",
             value=HUGGINGFACE_SPACE,
-            help="URL untuk HuggingFace Space API deteksi makanan"
+            help="URL untuk HuggingFace Space API deteksi makanan. Coba: https://wanndev14-yolo-api.huggingface.space"
         )
+        
+        # Add option to try alternative URLs
+        with st.expander("🔧 Alternative URLs"):
+            st.code("https://wanndev14-yolo-api.huggingface.space")
+            st.code("https://huggingface.co/spaces/wanndev14/yolo-api")
+            st.code("http://localhost:7860 (for local testing)")
+            
+            if st.button("🔄 Use HuggingFace Space URL"):
+                api_url = "https://wanndev14-yolo-api.huggingface.space"
+                st.success(f"✅ URL changed to: {api_url}")
+                st.rerun()
     
     # API Key configuration
     if not GROQ_API_KEY:
