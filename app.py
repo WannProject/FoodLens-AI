@@ -239,8 +239,8 @@ with st.sidebar:
     # Mode selection
     mode = st.radio(
         "Mode Deteksi",
-        options=["API Mode", "Demo Mode"],
-        help="API: Gunakan server API eksternal. Demo: Mode simulasi untuk testing."
+        options=["Demo Mode", "API Mode"],
+        help="Demo: Mode simulasi untuk testing (Direkomendasikan). API: Gunakan server API eksternal."
     )
     
     if mode == "Demo Mode":
@@ -291,6 +291,14 @@ st.write(
     "Unggah foto makanan, sistem akan mendeteksi objek (makanan) dengan YOLO dan meminta LLM untuk "
     "menyusun tabel kandungan gizi. Hasil deteksi divisualisasikan dengan bounding box."
 )
+
+# Show current mode status
+if mode == "Demo Mode":
+    st.success("🎭 **Demo Mode Aktif** - Siap untuk testing tanpa API server")
+    st.caption("💡 Demo Mode menggunakan simulasi deteksi dengan Groq API untuk analisis gizi")
+else:
+    st.warning("🔌 **API Mode Aktif** - Membutuhkan server YOLO API")
+    st.caption("⚠️ Pastikan server API berjalan di localhost:5000 atau gunakan Demo Mode")
 
 # -----------------------------
 # Upload & Action
@@ -389,13 +397,17 @@ if detect_btn and uploaded:
             else:
                 # API Mode
                 st.info("🔌 Menghubungkan ke API server...")
+                st.warning("⚠️ Pastikan API server YOLO berjalan di localhost:5000")
                 
                 # Try API detection
                 result = detect_with_api(io.BytesIO(image_bytes), api_url)
                 
                 if result is None:
-                    st.error("❌ Tidak dapat terhubung ke API server.")
-                    st.info("Pastikan API server berjalan dan coba lagi, atau gunakan Demo Mode.")
+                    st.error("❌ Tidak dapat terhubung ke API server YOLO.")
+                    st.info("💡 **Solusi:**")
+                    st.info("1. Jalankan API server: `python api.ipynb` (di Jupyter)")
+                    st.info("2. Atau gunakan **Demo Mode** di sidebar untuk testing langsung")
+                    st.info("3. Groq API Key sudah digunakan untuk analisis gizi, bukan untuk deteksi")
                     st.stop()
             
             # Validasi respon
