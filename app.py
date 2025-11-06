@@ -9,6 +9,27 @@ import numpy as np
 import cv2
 import os
 import tempfile
+import time
+
+# -----------------------------
+# Initialize Session State
+# -----------------------------
+def initialize_session_state():
+    """Initialize session state variables to prevent SessionInfo errors"""
+    if 'upload_initialized' not in st.session_state:
+        st.session_state.upload_initialized = False
+    if 'current_file' not in st.session_state:
+        st.session_state.current_file = None
+    if 'processing_error' not in st.session_state:
+        st.session_state.processing_error = None
+
+# Initialize session state early
+try:
+    initialize_session_state()
+    st.session_state.upload_initialized = True
+except Exception as e:
+    st.error(f"Session initialization error: {str(e)}")
+    st.session_state.upload_initialized = False
 
 # -----------------------------
 # Konfigurasi Halaman
@@ -23,6 +44,22 @@ st.set_page_config(
         "About": "UI Streamlit untuk Deteksi Gizi Makanan (YOLO + LLM)."
     }
 )
+
+# -----------------------------
+# Error Handling and Fallback
+# -----------------------------
+def handle_streamlit_errors():
+    """Handle common Streamlit errors gracefully"""
+    try:
+        # Test if session state is accessible
+        _ = st.session_state
+        return True
+    except Exception as e:
+        st.error(f"❌ Streamlit session error: {str(e)}")
+        st.info("🔄 Refreshing page...")
+        time.sleep(2)
+        st.rerun()
+        return False
 
 # -----------------------------
 # Configuration
@@ -258,18 +295,36 @@ st.write(
 # -----------------------------
 # Upload & Action
 # -----------------------------
-uploaded = st.file_uploader(
-    "Unggah Gambar (JPG/PNG)",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=False
-)
-
+# File upload with proper session state handling
 col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
 
-# Reset file pointer if file exists
-if uploaded:
-    uploaded.seek(0)
+uploaded = None
+try:
+    # Add a small delay to ensure session is fully initialized
+    if not st.session_state.upload_initialized:
+        time.sleep(0.1)
+    
+    uploaded = st.file_uploader(
+        "Unggah Gambar (JPG/PNG)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="food_image_uploader"  # Add key to prevent state conflicts
+    )
+    
+    # Update session state with current file
+    if uploaded is not None:
+        if st.session_state.current_file != uploaded.name:
+            st.session_state.current_file = uploaded.name
+            st.session_state.processing_error = None
+    else:
+        st.session_state.current_file = None
+        
+except Exception as e:
+    st.error(f"❌ Error initializing file uploader: {str(e)}")
+    st.session_state.processing_error = str(e)
+    uploaded = None
 
+# Handle file preview with error handling
 with col_preview:
     if uploaded:
         try:
@@ -281,29 +336,49 @@ with col_preview:
                 image = image.convert('RGB')
             st.image(image, caption="Pratinjau Gambar", use_container_width=True)
         except Exception as e:
-            st.error(f"Error loading image: {str(e)}")
-            st.stop()
+            st.error(f"❌ Error loading image: {str(e)}")
+            st.session_state.processing_error = str(e)
+            uploaded = None
+    else:
+        st.info("📷 Silakan unggah gambar makanan untuk memulai deteksi")
 
 st.write("")
 st.write("")
-detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=not uploaded)
+
+# Disable button if no file or there's a processing error
+detect_btn_disabled = uploaded is None or st.session_state.processing_error is not None
+detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=detect_btn_disabled)
+
+# Show error message if there's a processing error
+if st.session_state.processing_error:
+    st.error(f"❌ Processing Error: {st.session_state.processing_error}")
 
 # -----------------------------
 # Hasil
 # -----------------------------
 if detect_btn and uploaded:
     try:
+        # Clear any previous processing errors
+        st.session_state.processing_error = None
+        
         with st.spinner("Memproses..."):
-            # Read image directly from uploaded file
-            uploaded.seek(0)  # Reset file pointer
-            image_bytes = uploaded.read()
+            # Read image directly from uploaded file with additional error handling
             try:
+                uploaded.seek(0)  # Reset file pointer
+                image_bytes = uploaded.read()
+                
+                if not image_bytes:
+                    raise ValueError("File is empty or could not be read")
+                
                 image = Image.open(io.BytesIO(image_bytes))
                 # Convert image to RGB if it's not already
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
+                    
             except Exception as e:
-                st.error(f"Error loading image: {str(e)}")
+                error_msg = f"❌ Error loading image: {str(e)}"
+                st.error(error_msg)
+                st.session_state.processing_error = str(e)
                 st.stop()
             
             if mode == "Demo Mode":
@@ -398,6 +473,12 @@ if detect_btn and uploaded:
         st.toast("✅ Selesai memproses", icon="✅")
         
     except Exception as e:
+        error_msg = f"❌ Terjadi kesalahan saat memproses: {str(e)}"
+        st.error(error_msg)
+        st.session_state.processing_error = str(e)
+        # Provide user-friendly error message
+        if "SessionInfo" in str(e):
+            st.info("💡 Tips: Refresh halaman dan coba upload gambar kembali.")
         st.exception(e)
 
 # -----------------------------
