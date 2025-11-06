@@ -266,17 +266,19 @@ uploaded = st.file_uploader(
 
 col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
 
+# Reset file pointer if file exists
+if uploaded:
+    uploaded.seek(0)
+
 with col_preview:
     if uploaded:
-        # Read image data and store for later use
-        image_bytes = uploaded.read()
         try:
-            image = Image.open(io.BytesIO(image_bytes))
+            # Reset file pointer to beginning
+            uploaded.seek(0)
+            image = Image.open(uploaded)
             # Convert image to RGB if it's not already (fixes some image format issues)
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-            st.session_state.uploaded_image_bytes = image_bytes
-            st.session_state.uploaded_image = image
             st.image(image, caption="Pratinjau Gambar", use_container_width=True)
         except Exception as e:
             st.error(f"Error loading image: {str(e)}")
@@ -292,21 +294,17 @@ detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=not uploade
 if detect_btn and uploaded:
     try:
         with st.spinner("Memproses..."):
-            # Use stored image data from session state
-            if 'uploaded_image' in st.session_state:
-                image = st.session_state.uploaded_image
-                image_bytes = st.session_state.uploaded_image_bytes
-            else:
-                # Fallback: read from uploaded file
-                image_bytes = uploaded.read()
-                try:
-                    image = Image.open(io.BytesIO(image_bytes))
-                    # Convert image to RGB if it's not already
-                    if image.mode != 'RGB':
-                        image = image.convert('RGB')
-                except Exception as e:
-                    st.error(f"Error loading image: {str(e)}")
-                    st.stop()
+            # Read image directly from uploaded file
+            uploaded.seek(0)  # Reset file pointer
+            image_bytes = uploaded.read()
+            try:
+                image = Image.open(io.BytesIO(image_bytes))
+                # Convert image to RGB if it's not already
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+            except Exception as e:
+                st.error(f"Error loading image: {str(e)}")
+                st.stop()
             
             if mode == "Demo Mode":
                 # Demo simulation
