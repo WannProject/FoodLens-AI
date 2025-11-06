@@ -312,7 +312,7 @@ col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
 
 with col_preview:
     if uploaded:
-        st.image(uploaded, caption="Pratinjau Gambar", use_column_width=True)
+        st.image(uploaded, caption="Pratinjau Gambar", use_container_width=True)
 
 st.write("")
 st.write("")
@@ -388,7 +388,7 @@ if detect_btn and uploaded:
                     try:
                         mime, img_bytes = parse_data_url(img_data_url)
                         image = Image.open(io.BytesIO(img_bytes))
-                        st.image(image, caption="Gambar dengan Bounding Box", use_column_width=True)
+                        st.image(image, caption="Gambar dengan Bounding Box", use_container_width=True)
                         st.download_button(
                             label="Unduh Gambar Hasil",
                             data=img_bytes,
