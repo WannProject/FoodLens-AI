@@ -264,7 +264,8 @@ col_preview, col_action = st.columns([3, 2], vertical_alignment="bottom")
 
 with col_preview:
     if uploaded:
-        st.image(uploaded, caption="Pratinjau Gambar", use_container_width=True)
+        image = Image.open(uploaded)
+        st.image(image, caption="Pratinjau Gambar", use_container_width=True)
 
 st.write("")
 st.write("")
@@ -276,10 +277,13 @@ detect_btn = st.button("🔎 Deteksi Gizi", type="primary", disabled=not uploade
 if detect_btn and uploaded:
     try:
         with st.spinner("Memproses..."):
+            # Read image data once to avoid file pointer issues
+            image = Image.open(uploaded)
+            uploaded.seek(0)  # Reset file pointer for potential reuse
+            
             if mode == "Demo Mode":
                 # Demo simulation
                 st.success("🎭 Demo Mode - Simulating detection results...")
-                image = Image.open(uploaded)
                 result = create_demo_detection(image)
                 
             else:
