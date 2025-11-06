@@ -11,6 +11,7 @@ import os
 import tempfile
 import time
 
+
 HUGGINGFACE_SPACE = "https://huggingface.co/spaces/wanndev14/yolo-api"
 
 # -----------------------------
@@ -155,7 +156,7 @@ def get_nutritional_analysis(detected_foods):
     except Exception as e:
         return f"❌ Error getting nutritional analysis: {str(e)}"
 
-def detect_with_api(image_data, api_url="http://localhost:5000"):
+def detect_with_api(image_data, api_url=HUGGINGFACE_SPACE):
     """Try to detect using external API"""
     try:
         files = {"image": image_data}
@@ -163,9 +164,10 @@ def detect_with_api(image_data, api_url="http://localhost:5000"):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:
+        st.error(f"❌ Tidak dapat terhubung ke API server di: {api_url}")
         return None
     except Exception as e:
-        st.error(f"API Error: {str(e)}")
+        st.error(f"❌ API Error: {str(e)}")
         return None
 
 def create_demo_detection(image):
