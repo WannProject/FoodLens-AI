@@ -28,8 +28,8 @@ st.set_page_config(
 # Configuration
 # -----------------------------
 # Get API key from environment variable for deployment
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.1-70b-versatile"
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+GROQ_MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
 
 # Class names - Synchronized with dataset/data.yaml
 CLASS_NAMES = [
