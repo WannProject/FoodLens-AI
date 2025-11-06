@@ -13,6 +13,7 @@ import time
 
 
 HUGGINGFACE_SPACE = "https://huggingface.co/spaces/wanndev14/yolo-api"
+HUGGINGFACE_API_URL = HUGGINGFACE_SPACE  # Add this for backward compatibility
 
 # -----------------------------
 # Initialize Session State
@@ -156,16 +157,59 @@ def get_nutritional_analysis(detected_foods):
     except Exception as e:
         return f"❌ Error getting nutritional analysis: {str(e)}"
 
+def test_api_connection(api_url):
+    """Test connection to HuggingFace API before detection"""
+    try:
+        st.info("🔍 Testing API connection...")
+        response = requests.get(f"{api_url}", timeout=10)
+        if response.status_code == 200:
+            st.success("✅ API connection successful!")
+            return True
+        else:
+            st.warning(f"⚠️ API returned status code: {response.status_code}")
+            return False
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API - Space might be sleeping")
+        return False
+    except Exception as e:
+        st.error(f"❌ Connection test failed: {str(e)}")
+        return False
+
 def detect_with_api(image_data, api_url=HUGGINGFACE_SPACE):
     """Try to detect using external API"""
     try:
         files = {"image": image_data}
-        response = requests.post(f"{api_url}/detect-gizi", files=files, timeout=90)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.ConnectionError:
-        st.error(f"❌ Tidak dapat terhubung ke API server di: {api_url}")
+        # Try multiple endpoints for HuggingFace compatibility
+        endpoints = [
+            f"{api_url}/detect-gizi",
+            f"{api_url}/predict",
+            f"{api_url}/api/detect",
+            f"{api_url}/"
+        ]
+        
+        # Test connection first
+        if not test_api_connection(api_url):
+            st.info("💡 Tips: Buka link HuggingFace Space untuk 'wake up' dari sleep mode")
+            return None
+        
+        for endpoint in endpoints:
+            try:
+                st.info(f"🔄 Trying endpoint: {endpoint}")
+                response = requests.post(endpoint, files=files, timeout=90)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.HTTPError as http_err:
+                if response.status_code == 404:
+                    continue  # Try next endpoint
+                else:
+                    raise http_err
+            except requests.exceptions.ConnectionError:
+                st.error(f"❌ Tidak dapat terhubung ke API server di: {endpoint}")
+                continue
+        
+        st.error("❌ Semua endpoint API gagal. Pastikan HuggingFace Space sudah berjalan dengan benar.")
         return None
+        
     except Exception as e:
         st.error(f"❌ API Error: {str(e)}")
         return None
@@ -251,13 +295,13 @@ with st.sidebar:
         st.info("🎭 Demo Mode - Menampilkan hasil simulasi")
         st.caption("Tidak memerlukan model file untuk testing.")
     else:
-        st.info("🔌 API Mode - Menghubungkan ke server API")
-        st.caption("Pastikan API server berjalan di http://localhost:5000")
+        st.info("🔌 API Mode - Menghubungkan ke HuggingFace API")
+        st.caption("Menggunakan API yang sudah di-deploy ke HuggingFace Spaces")
         
         api_url = st.text_input(
-            "API URL",
-            value="http://localhost:5000",
-            help="URL untuk API server deteksi makanan"
+            "HuggingFace API URL",
+            value=HUGGINGFACE_SPACE,
+            help="URL untuk HuggingFace Space API deteksi makanan"
         )
     
     # API Key configuration
@@ -301,8 +345,9 @@ if mode == "Demo Mode":
     st.success("🎭 **Demo Mode Aktif** - Siap untuk testing tanpa API server")
     st.caption("💡 Demo Mode menggunakan simulasi deteksi dengan Groq API untuk analisis gizi")
 else:
-    st.warning("🔌 **API Mode Aktif** - Membutuhkan server YOLO API")
-    st.caption("⚠️ Pastikan server API berjalan di localhost:5000 atau gunakan Demo Mode")
+    st.warning("🔌 **API Mode Aktif** - Menghubungkan ke HuggingFace API")
+    st.caption(f"🌐 Target API: {api_url}")
+    st.caption("⚠️ Pastikan HuggingFace Space sudah berjalan atau gunakan Demo Mode")
 
 # -----------------------------
 # Upload & Action
@@ -400,18 +445,19 @@ if detect_btn and uploaded:
                 
             else:
                 # API Mode
-                st.info("🔌 Menghubungkan ke API server...")
-                st.warning("⚠️ Pastikan API server YOLO berjalan di localhost:5000")
+                st.info("🔌 Menghubungkan ke HuggingFace API...")
+                st.info(f"🌐 API URL: {api_url}")
                 
                 # Try API detection
                 result = detect_with_api(io.BytesIO(image_bytes), api_url)
                 
                 if result is None:
-                    st.error("❌ Tidak dapat terhubung ke API server YOLO.")
+                    st.error("❌ Tidak dapat terhubung ke HuggingFace API.")
                     st.info("💡 **Solusi:**")
-                    st.info("1. Jalankan API server: `python api.ipynb` (di Jupyter)")
-                    st.info("2. Atau gunakan **Demo Mode** di sidebar untuk testing langsung")
-                    st.info("3. Groq API Key sudah digunakan untuk analisis gizi, bukan untuk deteksi")
+                    st.info("1. Pastikan HuggingFace Space sudah berjalan: https://huggingface.co/spaces/wanndev14/yolo-api")
+                    st.info("2. Check jika Space sedang dalam mode sleep (buka link untuk wake up)")
+                    st.info("3. Atau gunakan **Demo Mode** di sidebar untuk testing langsung")
+                    st.info("4. Pastikan endpoint `/detect-gizi` atau `/predict` tersedia di API kamu")
                     st.stop()
             
             # Validasi respon
