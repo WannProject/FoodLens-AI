@@ -11,6 +11,8 @@ import os
 import tempfile
 import time
 
+HUGGINGFACE_SPACE = "https://huggingface.co/spaces/wanndev14/yolo-api"
+
 # -----------------------------
 # Initialize Session State
 # -----------------------------
