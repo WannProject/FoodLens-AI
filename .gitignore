@@ -3,8 +3,8 @@ Capstone-Bangkit-Academy-2023.v1i.yolov11/
 dataset/
 
 # Model files (too large for GitHub)
-runs/
-*.pt
+# runs/
+# *.pt
 *.pth
 *.onnx
 
