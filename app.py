@@ -652,7 +652,7 @@ def perform_local_detection(image: Image.Image):
 # Sidebar Configuration
 # -----------------------------
 with st.sidebar:
-    st.markdown("## ⚙️ **Pengaturan & Kontrol**")
+    st.markdown("## ⚙️ **Pengaturan dan Kontrol**")
     
     # System Status
     st.markdown("### 📊 **Status Sistem**")
