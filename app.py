@@ -634,6 +634,136 @@ def perform_local_detection(image: Image.Image):
         st.error(st.session_state.error_message)
 
 # -----------------------------
+# Sidebar Configuration
+# -----------------------------
+with st.sidebar:
+    st.markdown("## ⚙️ **Pengaturan & Kontrol**")
+    
+    # System Status
+    st.markdown("### 📊 **Status Sistem**")
+    
+    # Environment Status
+    if not YOLO_AVAILABLE:
+        st.error("❌ **YOLO/OpenCV Tidak Tersedia**")
+        st.info("🌐 Mode: Demo Only")
+        st.markdown("*Environment tidak mendukung OpenCV*")
+    elif not CV2_AVAILABLE:
+        st.warning("⚠️ **OpenCV Tidak Tersedia**")
+        st.info("🖥️ Mode: Local + PIL")
+        st.markdown("*Menggunakan PIL untuk image processing*")
+    else:
+        st.success("✅ **Full Local Mode**")
+        st.info("🖥️ Mode: Local + OpenCV")
+        st.markdown("*Semua library tersedia*")
+    
+    st.divider()
+    
+    # Detection Settings
+    st.markdown("### 🔍 **Pengaturan Deteksi**")
+    
+    # Demo Mode Toggle
+    demo_mode = st.checkbox(
+        "🎮 **Demo Mode (Offline)**",
+        value=not YOLO_AVAILABLE,
+        help="Simulasi deteksi tanpa memerlukan model YOLO - cocok untuk demo dan testing"
+    )
+    
+    # Confidence Threshold
+    confidence_threshold = st.slider(
+        "📊 **Confidence Threshold**",
+        min_value=0.1,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help="Minimum confidence level untuk deteksi objek. Semakin tinggi semakin selektif."
+    )
+    
+    # Update session state
+    st.session_state.confidence_threshold = confidence_threshold
+    
+    st.divider()
+    
+    # Model Management
+    st.markdown("### 🤖 **Model Management**")
+    
+    if not demo_mode and YOLO_AVAILABLE:
+        if st.session_state.model_loaded:
+            st.success("✅ **Model Loaded**")
+            if os.path.exists(DEFAULT_MODEL_PATH):
+                size_mb = os.path.getsize(DEFAULT_MODEL_PATH) / (1024 * 1024)
+                st.caption(f"📁 Model: {size_mb:.1f} MB")
+            
+            if st.button("🔄 Reload Model", type="secondary"):
+                st.session_state.model_loaded = False
+                st.session_state.model = None
+                st.rerun()
+        else:
+            st.warning("⚠️ **Model Not Loaded**")
+            if st.button("🚀 Load YOLO Model", type="primary"):
+                with st.spinner("Loading model..."):
+                    model = load_yolo_model(st.session_state.model_path)
+                    if model:
+                        st.session_state.model = model
+                        st.session_state.model_loaded = True
+                        st.rerun()
+                    else:
+                        st.error("❌ Gagal load model")
+    else:
+        st.info("ℹ️ **Demo Mode Aktif**")
+        st.caption("Model tidak diperlukan dalam mode demo")
+    
+    st.divider()
+    
+    # API Status
+    st.markdown("### 🌐 **API Status**")
+    
+    # Groq API Status
+    if GROQ_API_KEY:
+        st.success("✅ **Groq API Ready**")
+        st.caption("LLM: Groq Llama-4")
+    else:
+        st.error("❌ **Groq API Key Missing**")
+        st.caption("Nutritional analysis tidak akan berfungsi")
+    
+    st.divider()
+    
+    # Statistics & History
+    st.markdown("### 📈 **Statistik & Riwayat**")
+    
+    # Detection History
+    if st.session_state.detection_history:
+        st.caption(f"📊 Total Deteksi: {len(st.session_state.detection_history)}")
+        
+        if st.button("🗑️ **Clear History", type="secondary"):
+            st.session_state.detection_history = []
+            st.rerun()
+        
+        # Show recent detections
+        with st.expander("📋 **Riwayat Deteksi Terakhir**"):
+            for i, entry in enumerate(reversed(st.session_state.detection_history[-5:]), 1):
+                st.markdown(f"**{i}.** {entry['timestamp']}")
+                st.caption(f"📦 Objek: {entry['stats']['total_objects']} | 🍽️ Jenis: {entry['stats']['unique_foods']}")
+    else:
+        st.caption("📭 Belum ada riwayat deteksi")
+    
+    st.divider()
+    
+    # App Info
+    st.markdown("### ℹ️ **Informasi Aplikasi**")
+    
+    st.markdown("""
+    **DataLens-AI Food Detection**
+    
+    🤖 **Model:** YOLOv11
+    🧠 **LLM:** Groq Llama-4
+    🍽️ **Kelas:** 29 Makanan Indonesia
+    🖼️ **Format:** JPG/PNG
+    ⚡ **Mode:** Local + API Fallback
+    """)
+    
+    st.caption("_Version 1.0 - Streamlit Cloud Ready_")
+
+# -----------------------------
 # Main Application
 # -----------------------------
 inject_custom_styles()
@@ -645,7 +775,7 @@ st.write(
     "untuk analisis gizi. Upload gambar makanan dan dapatkan informasi gizi lengkap dalam bahasa Indonesia."
 )
 
-# Check availability and show appropriate mode
+# Check availability and show appropriate mode in main area
 if not YOLO_AVAILABLE:
     st.warning("⚠️ **YOLO/OpenCV Tidak Tersedia** - Menggunakan Demo Mode")
     st.info("💡 Environment Streamlit Cloud tidak mendukung OpenCV. Gunakan demo mode untuk simulasi.")
@@ -655,20 +785,28 @@ elif not CV2_AVAILABLE:
 else:
     st.success("🖥️ **Local Mode Aktif** - Menggunakan model YOLO lokal dengan OpenCV")
 
-# Demo mode toggle
-demo_mode = st.checkbox(
-    "🎮 Gunakan Demo Mode (Offline)",
-    value=not YOLO_AVAILABLE,
-    help="Simulasi deteksi tanpa memerlukan model YOLO"
-)
+# File upload section with status indicator
+col1, col2 = st.columns([3, 1])
+with col1:
+    uploaded = st.file_uploader(
+        "📤 **Unggah Gambar Makanan**",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="food_image_uploader",
+        help="Upload gambar makanan dalam format JPG atau PNG"
+    )
 
-# File upload
-uploaded = st.file_uploader(
-    "Unggah Gambar (JPG/PNG)",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=False,
-    key="food_image_uploader"
-)
+with col2:
+    # Show detection readiness status
+    if demo_mode:
+        st.success("🎮 **Demo Ready**")
+        st.caption("Mode: Offline")
+    elif st.session_state.model_loaded:
+        st.success("🤖 **Model Ready**")
+        st.caption("Mode: Local")
+    else:
+        st.warning("⚠️ **Model Needed**")
+        st.caption("Load model di sidebar")
 
 # Handle file preview
 if uploaded:
@@ -677,25 +815,31 @@ if uploaded:
         image = Image.open(uploaded)
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        st.image(image, caption="Pratinjau Gambar", width='stretch')
+        
+        # Image preview with info
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.image(image, caption="📷 **Pratinjau Gambar**", use_container_width=True)
+        with col2:
+            img_width, img_height = image.size
+            st.markdown("### 📊 **Info Gambar**")
+            st.metric("Lebar", f"{img_width}px")
+            st.metric("Tinggi", f"{img_height}px")
+            st.metric("Format", image.format)
+            st.metric("Mode", image.mode)
+            
     except Exception as e:
         st.error(f"❌ Error loading preview: {str(e)}")
         uploaded = None
 else:
-    st.info("📷 Silakan unggah gambar makanan untuk memulai deteksi")
-
-# Load model button (only show if not in demo mode and YOLO is available)
-if not demo_mode and YOLO_AVAILABLE and not st.session_state.model_loaded:
-    st.info("📁 Load model terlebih dahulu")
-    if st.button("🔄 Load YOLO Model", type="primary"):
-        with st.spinner("Loading model..."):
-            model = load_yolo_model(st.session_state.model_path)
-            if model:
-                st.session_state.model = model
-                st.session_state.model_loaded = True
-                st.rerun()
-            else:
-                st.error("❌ Gagal load model")
+    st.info("📷 **Silakan unggah gambar makanan untuk memulai deteksi**")
+    st.markdown("""
+    **Tips untuk hasil terbaik:**
+    - 📸 Gunakan gambar yang jelas dan terang
+    - 🍽️ Pastikan makanan terlihat dengan jelas
+    - 📏 Hindari gambar yang terlalu kecil atau buram
+    - 🎯 Fokus pada makanan yang ingin dideteksi
+    """)
 
 # Detection button
 if uploaded:
@@ -780,10 +924,10 @@ if st.session_state.detection_results:
         if CV2_AVAILABLE and len(annotated_image.shape) == 3 and annotated_image.shape[2] == 3:
             # Convert BGR to RGB if OpenCV was used
             annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-            st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
+            st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", use_container_width=True)
         else:
             # Display as-is if PIL was used (already RGB)
-            st.image(annotated_image, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
+            st.image(annotated_image, caption="Hasil Deteksi dengan Bounding Box", use_container_width=True)
         
         # Download button
         img_base64 = image_to_base64(annotated_image)
