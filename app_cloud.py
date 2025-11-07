@@ -254,7 +254,7 @@ uploaded_file = st.file_uploader("Pilih gambar makanan", type=["jpg", "jpeg", "p
 
 if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Gambar Uploaded", use_container_width=True)
+    st.image(image, caption="Gambar Uploaded")
     
     if st.button("🔍 Deteksi & Analisis Gizi", type="primary", use_container_width=True):
         with st.spinner("🔄 Memproses..."):
@@ -340,7 +340,7 @@ if uploaded_file:
                     # Annotated Image
                     st.subheader("📷 Hasil Visual")
                     if annotated_image is not None:
-                        st.image(annotated_image, use_container_width=True)
+                        st.image(annotated_image)
                     
                     # Detection Details
                     st.subheader("📦 Detail Makanan")
@@ -353,7 +353,7 @@ if uploaded_file:
                         })
                     
                     df = pd.DataFrame(detection_data)
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df)
                     
                     # Food tags
                     st.subheader("🏷️ Makanan Terdeteksi")
