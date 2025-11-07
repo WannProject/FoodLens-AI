@@ -108,6 +108,15 @@ def initialize_session_state():
 try:
     initialize_session_state()
     st.session_state.upload_initialized = True
+    
+    # Auto-load model if YOLO is available and model not loaded yet
+    if YOLO_AVAILABLE and not st.session_state.model_loaded:
+        with st.spinner("Auto-loading YOLO model..."):
+            model = load_yolo_model(st.session_state.model_path)
+            if model:
+                st.session_state.model = model
+                st.session_state.model_loaded = True
+                
 except Exception as e:
     st.error(f"Session initialization error: {str(e)}")
     st.session_state.upload_initialized = False
@@ -664,7 +673,7 @@ with st.sidebar:
     # Demo Mode Toggle
     demo_mode = st.checkbox(
         "🎮 **Demo Mode (Offline)**",
-        value=not YOLO_AVAILABLE,
+        value=False,  # Default ke False agar mode server/local menjadi prioritas
         help="Simulasi deteksi tanpa memerlukan model YOLO - cocok untuk demo dan testing"
     )
     
