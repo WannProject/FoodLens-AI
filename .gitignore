@@ -1,5 +1,6 @@
 # Dataset folders (too large for GitHub)
 Capstone-Bangkit-Academy-2023.v1i.yolov11/
+huggingface_deploy/
 dataset/
 .roo/
 
@@ -11,6 +12,9 @@ dataset/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Markdownn files
+README_HF.md
 
 # Python
 __pycache__/

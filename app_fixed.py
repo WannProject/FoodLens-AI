@@ -195,6 +195,10 @@ with st.sidebar:
         min_value=0.1, max_value=1.0, value=0.5, step=0.05
     )
     
+    # Demo mode toggle for when API is unavailable
+    st.subheader("🎮 Fallback Options")
+    demo_mode = st.checkbox("Gunakan Demo Mode (Offline)", help="Gunakan simulasi jika API tidak tersedia")
+    
     st.success("✅ Groq API: Ready")
 
 # ==================== MAIN APP ====================
@@ -214,8 +218,12 @@ else:
 uploaded_file = st.file_uploader("Pilih gambar makanan", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Gambar Uploaded", use_container_width=True)
+    try:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Gambar Uploaded", use_container_width=True)
+    except Exception as e:
+        st.error(f"❌ Error loading image: {str(e)}")
+        uploaded_file = None
     
     if st.button("🔍 Deteksi & Analisis Gizi", type="primary", use_container_width=True):
         with st.spinner("🔄 Memproses..."):
@@ -233,7 +241,68 @@ if uploaded_file:
                 annotated_image = None
                 
                 # Pilih metode deteksi
-                if model:
+                if demo_mode:
+                    # Demo mode - create fake results
+                    st.info("🎮 Menggunakan demo mode...")
+                    import random
+                    
+                    # Sample Indonesian food detections with reasonable confidence
+                    possible_foods = [
+                        ("nasi goreng", 0.85),
+                        ("ayam goreng", 0.92),
+                        ("telur", 0.78),
+                        ("tempe", 0.73),
+                        ("tahu", 0.81),
+                        ("sate", 0.88),
+                        ("rendang", 0.95),
+                        ("gado-gado", 0.77)
+                    ]
+                    
+                    # Select 2-4 random foods
+                    num_foods = random.randint(2, 4)
+                    selected_foods = random.sample(possible_foods, min(num_foods, len(possible_foods)))
+                    
+                    detected_objects = []
+                    food_names = []
+                    
+                    img_width, img_height = image.size
+                    
+                    # Create annotated image
+                    annotated_image = image.copy()
+                    draw = ImageDraw.Draw(annotated_image)
+                    
+                    try:
+                        font = ImageFont.load_default()
+                    except:
+                        font = None
+                    
+                    for i, (food_name, confidence) in enumerate(selected_foods):
+                        # Generate random bounding box
+                        x1 = random.randint(50, img_width // 2)
+                        y1 = random.randint(50, img_height // 2)
+                        box_width = random.randint(100, 200)
+                        box_height = random.randint(80, 150)
+                        x2 = min(x1 + box_width, img_width - 10)
+                        y2 = min(y1 + box_height, img_height - 10)
+                        
+                        detected_objects.append({
+                            "nama": food_name,
+                            "confidence": confidence,
+                            "bbox": [x1, y1, x2, y2]
+                        })
+                        food_names.append(food_name)
+                        
+                        # Draw bounding box
+                        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+                        
+                        # Draw label
+                        label = f"{food_name} ({confidence:.2f})"
+                        if font:
+                            draw.text((x1, y1-20), label, fill=(0, 255, 0), font=font)
+                        else:
+                            draw.text((x1, y1-20), label, fill=(0, 255, 0))
+                    
+                elif model:
                     # Local detection
                     st.info("🖥️ Menggunakan model lokal...")
                     detected_objects, food_names, annotated_image = detect_food_local(
@@ -260,6 +329,66 @@ if uploaded_file:
                             except Exception as img_error:
                                 st.warning(f"⚠️ Could not load annotated image: {img_error}")
                                 pass
+                    else:
+                        # API failed, fallback to demo mode
+                        st.warning("⚠️ API gagal, menggunakan demo mode...")
+                        import random
+                        
+                        # Sample Indonesian food detections with reasonable confidence
+                        possible_foods = [
+                            ("nasi goreng", 0.85),
+                            ("ayam goreng", 0.92),
+                            ("telur", 0.78),
+                            ("tempe", 0.73),
+                            ("tahu", 0.81),
+                            ("sate", 0.88),
+                            ("rendang", 0.95),
+                            ("gado-gado", 0.77)
+                        ]
+                        
+                        # Select 2-4 random foods
+                        num_foods = random.randint(2, 4)
+                        selected_foods = random.sample(possible_foods, min(num_foods, len(possible_foods)))
+                        
+                        detected_objects = []
+                        food_names = []
+                        
+                        img_width, img_height = image.size
+                        
+                        # Create annotated image
+                        annotated_image = image.copy()
+                        draw = ImageDraw.Draw(annotated_image)
+                        
+                        try:
+                            font = ImageFont.load_default()
+                        except:
+                            font = None
+                        
+                        for i, (food_name, confidence) in enumerate(selected_foods):
+                            # Generate random bounding box
+                            x1 = random.randint(50, img_width // 2)
+                            y1 = random.randint(50, img_height // 2)
+                            box_width = random.randint(100, 200)
+                            box_height = random.randint(80, 150)
+                            x2 = min(x1 + box_width, img_width - 10)
+                            y2 = min(y1 + box_height, img_height - 10)
+                            
+                            detected_objects.append({
+                                "nama": food_name,
+                                "confidence": confidence,
+                                "bbox": [x1, y1, x2, y2]
+                            })
+                            food_names.append(food_name)
+                            
+                            # Draw bounding box
+                            draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+                            
+                            # Draw label
+                            label = f"{food_name} ({confidence:.2f})"
+                            if font:
+                                draw.text((x1, y1-20), label, fill=(0, 255, 0), font=font)
+                            else:
+                                draw.text((x1, y1-20), label, fill=(0, 255, 0))
                 
                 # Get nutrition analysis
                 with st.spinner("🥗 Menganalisis gizi..."):

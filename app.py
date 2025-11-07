@@ -2,15 +2,32 @@ import streamlit as st
 import requests
 import base64
 import io
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 from typing import Tuple, List, Dict, Optional
 import numpy as np
-import cv2
 import os
 import tempfile
 import time
-from ultralytics import YOLO
+from datetime import datetime
+
+# Try to import OpenCV and YOLO, but handle ImportError gracefully
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError as e:
+    YOLO_AVAILABLE = False
+    # Create a dummy YOLO class for type hints
+    class YOLO:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("YOLO not available")
 
 # Optional Ngrok import
 try:
@@ -177,6 +194,17 @@ def load_yolo_model(model_path: str) -> Optional[YOLO]:
     Load YOLO model with caching for performance
     """
     try:
+        if not YOLO_AVAILABLE:
+            st.warning("⚠️ YOLO/OpenCV tidak tersedia di environment ini")
+            st.info("🔄 Menggunakan API mode atau demo mode saja")
+            return None
+            
+        if not CV2_AVAILABLE:
+            st.warning("⚠️ OpenCV tidak tersedia di environment ini")
+            st.info("🔄 Menggunakan PIL untuk image processing")
+            # We can still use YOLO without OpenCV for basic functionality
+            # but need to handle image processing differently
+            
         if not os.path.exists(model_path):
             st.error(f"❌ Model file not found: {model_path}")
             return None
@@ -196,9 +224,11 @@ def preprocess_image(image: Image.Image) -> np.ndarray:
     """
     Preprocess PIL image for YOLO detection
     """
-    # Convert PIL to numpy array (RGB to BGR for OpenCV)
-    image_array = np.array(image)
-    if image_array.shape[2] == 3:  # RGB
+    # Convert PIL to numpy array
+    image_array = np.array(image.convert('RGB'))
+    
+    # Only convert to BGR if OpenCV is available
+    if CV2_AVAILABLE and image_array.shape[2] == 3:  # RGB
         image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
     
     return image_array
@@ -242,10 +272,13 @@ def detect_food_objects(model: YOLO, image: np.ndarray, confidence_threshold: fl
         st.error(f"❌ Error during detection: {str(e)}")
         return [], []
 
-def draw_bounding_boxes(image: np.ndarray, detections: List[Dict]) -> np.ndarray:
+def draw_bounding_boxes_opencv(image: np.ndarray, detections: List[Dict]) -> np.ndarray:
     """
-    Draw bounding boxes and labels on image
+    Draw bounding boxes and labels on image using OpenCV
     """
+    if not CV2_AVAILABLE:
+        return draw_bounding_boxes_pil(image, detections)
+        
     # Create a copy to avoid modifying the original
     annotated_image = image.copy()
     
@@ -288,6 +321,52 @@ def draw_bounding_boxes(image: np.ndarray, detections: List[Dict]) -> np.ndarray
     
     return annotated_image
 
+def draw_bounding_boxes_pil(image_array: np.ndarray, detections: List[Dict]) -> np.ndarray:
+    """
+    Draw bounding boxes and labels on image using PIL (fallback when OpenCV not available)
+    """
+    # Convert numpy array back to PIL Image
+    if CV2_AVAILABLE and len(image_array.shape) == 3 and image_array.shape[2] == 3:
+        # Convert BGR to RGB if it's BGR format
+        image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+    else:
+        image_rgb = image_array
+        
+    pil_image = Image.fromarray(image_rgb.astype(np.uint8))
+    draw = ImageDraw.Draw(pil_image)
+    
+    try:
+        font = ImageFont.load_default()
+    except:
+        font = None
+    
+    for detection in detections:
+        x1, y1, x2, y2 = detection["bbox"]
+        confidence = detection["confidence"]
+        class_name = detection["nama"]
+        
+        # Draw bounding box
+        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+        
+        # Draw label
+        label = f"{class_name} ({confidence:.2f})"
+        if font:
+            draw.text((x1, y1-20), label, fill=(0, 255, 0), font=font)
+        else:
+            draw.text((x1, y1-20), label, fill=(0, 255, 0))
+    
+    # Convert back to numpy array
+    return np.array(pil_image)
+
+def draw_bounding_boxes(image: np.ndarray, detections: List[Dict]) -> np.ndarray:
+    """
+    Draw bounding boxes and labels on image (with automatic fallback)
+    """
+    if CV2_AVAILABLE:
+        return draw_bounding_boxes_opencv(image, detections)
+    else:
+        return draw_bounding_boxes_pil(image, detections)
+
 # -----------------------------
 # Helper Functions
 # -----------------------------
@@ -307,9 +386,25 @@ def chip(text: str) -> str:
 def image_to_base64(image: np.ndarray, format: str = 'jpg') -> str:
     """Convert image array to base64 string"""
     try:
-        _, img_encoded = cv2.imencode(f'.{format}', image)
-        img_base64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
-        return f"data:image/{format};base64," + img_base64
+        if CV2_AVAILABLE:
+            # Use OpenCV if available
+            _, img_encoded = cv2.imencode(f'.{format}', image)
+            img_base64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
+            return f"data:image/{format};base64," + img_base64
+        else:
+            # Fallback to PIL
+            # Convert numpy array to PIL Image
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                pil_image = Image.fromarray(image.astype(np.uint8))
+            else:
+                pil_image = Image.fromarray(image.astype(np.uint8), mode='L')
+            
+            # Save to bytes
+            img_bytes = io.BytesIO()
+            pil_image.save(img_bytes, format=format.upper())
+            img_bytes.seek(0)
+            img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
+            return f"data:image/{format};base64," + img_base64
     except Exception as e:
         st.error(f"❌ Error encoding image: {str(e)}")
         return ""
@@ -435,23 +530,38 @@ def create_demo_detection(image):
     # Get nutritional analysis
     gizi_text = get_nutritional_analysis(makanan_list)
     
-    # Draw boxes on image
-    image_array = np.array(image)
+    # Draw boxes on image using PIL
+    annotated_image = image.copy()
+    draw = ImageDraw.Draw(annotated_image)
+    
+    try:
+        font = ImageFont.load_default()
+    except:
+        font = None
+    
     for obj in detected_objects:
         x1, y1, x2, y2 = obj["bbox"]
-        cv2.rectangle(image_array, (x1, y1), (x2, y2), (0,255,0), 2)
-        text = f"{obj['nama']} ({obj['confidence']:.2f})"
-        cv2.putText(image_array, text, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+        # Draw rectangle
+        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+        
+        # Draw label
+        label = f"{obj['nama']} ({obj['confidence']:.2f})"
+        if font:
+            draw.text((x1, y1-20), label, fill=(0, 255, 0), font=font)
+        else:
+            draw.text((x1, y1-20), label, fill=(0, 255, 0))
     
     # Convert to base64
-    _, img_encoded = cv2.imencode('.jpg', image_array)
-    img_base64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
+    img_bytes = io.BytesIO()
+    annotated_image.save(img_bytes, format='JPEG')
+    img_bytes.seek(0)
+    img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
     
     return {
         "objects": detected_objects,
         "image": "data:image/jpeg;base64," + img_base64,
         "gizi": gizi_text,
-        "annotated_image": image_array
+        "annotated_image": np.array(annotated_image)
     }
 
 def perform_local_detection(image: Image.Image):
@@ -535,8 +645,22 @@ st.write(
     "untuk analisis gizi. Upload gambar makanan dan dapatkan informasi gizi lengkap dalam bahasa Indonesia."
 )
 
-# Simple Mode - langsung pakai Local Mode saja
-st.success("🖥️ **Local Mode Aktif** - Menggunakan model YOLO lokal")
+# Check availability and show appropriate mode
+if not YOLO_AVAILABLE:
+    st.warning("⚠️ **YOLO/OpenCV Tidak Tersedia** - Menggunakan Demo Mode")
+    st.info("💡 Environment Streamlit Cloud tidak mendukung OpenCV. Gunakan demo mode untuk simulasi.")
+elif not CV2_AVAILABLE:
+    st.warning("⚠️ **OpenCV Tidak Tersedia** - Menggunakan PIL untuk image processing")
+    st.success("🖥️ **Local Mode Aktif** - Menggunakan model YOLO lokal dengan PIL")
+else:
+    st.success("🖥️ **Local Mode Aktif** - Menggunakan model YOLO lokal dengan OpenCV")
+
+# Demo mode toggle
+demo_mode = st.checkbox(
+    "🎮 Gunakan Demo Mode (Offline)",
+    value=not YOLO_AVAILABLE,
+    help="Simulasi deteksi tanpa memerlukan model YOLO"
+)
 
 # File upload
 uploaded = st.file_uploader(
@@ -560,8 +684,8 @@ if uploaded:
 else:
     st.info("📷 Silakan unggah gambar makanan untuk memulai deteksi")
 
-# Load model button
-if not st.session_state.model_loaded:
+# Load model button (only show if not in demo mode and YOLO is available)
+if not demo_mode and YOLO_AVAILABLE and not st.session_state.model_loaded:
     st.info("📁 Load model terlebih dahulu")
     if st.button("🔄 Load YOLO Model", type="primary"):
         with st.spinner("Loading model..."):
@@ -574,24 +698,48 @@ if not st.session_state.model_loaded:
                 st.error("❌ Gagal load model")
 
 # Detection button
-if uploaded and st.session_state.model_loaded:
-    if st.button("🔎 Deteksi Gizi", type="primary"):
-        with st.spinner("Memproses..."):
-            try:
-                uploaded.seek(0)
-                image_bytes = uploaded.read()
-                
-                if not image_bytes:
-                    raise ValueError("File is empty or could not be read")
-                
-                image = Image.open(io.BytesIO(image_bytes))
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
+if uploaded:
+    can_detect = demo_mode or st.session_state.model_loaded
+    
+    if can_detect:
+        if st.button("🔎 Deteksi Gizi", type="primary"):
+            with st.spinner("Memproses..."):
+                try:
+                    uploaded.seek(0)
+                    image_bytes = uploaded.read()
                     
-                perform_local_detection(image)
+                    if not image_bytes:
+                        raise ValueError("File is empty or could not be read")
                     
-            except Exception as e:
-                st.error(f"❌ Error loading image: {str(e)}")
+                    image = Image.open(io.BytesIO(image_bytes))
+                    if image.mode != 'RGB':
+                        image = image.convert('RGB')
+                    
+                    if demo_mode:
+                        # Use demo detection
+                        st.info("🎮 Menggunakan demo mode...")
+                        demo_result = create_demo_detection(image)
+                        
+                        # Convert demo result to expected format
+                        results = {
+                            "detections": demo_result["objects"],
+                            "annotated_image": demo_result["annotated_image"],
+                            "nutritional_info": demo_result["gizi"],
+                            "stats": calculate_detection_stats(demo_result["objects"]),
+                            "timestamp": format_detection_time()
+                        }
+                        
+                        st.session_state.detection_results = results
+                        st.session_state.success_message = "Demo deteksi berhasil!"
+                        st.rerun()
+                    else:
+                        # Use local detection
+                        perform_local_detection(image)
+                        
+                except Exception as e:
+                    st.error(f"❌ Error loading image: {str(e)}")
+    else:
+        st.warning("⚠️ Load model terlebih dahulu atau gunakan Demo Mode")
 
 # Display results
 if st.session_state.detection_results:
@@ -627,9 +775,15 @@ if st.session_state.detection_results:
         
         # Convert and display annotated image
         annotated_image = results["annotated_image"]
-        annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
         
-        st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
+        # Handle image display based on whether OpenCV is available
+        if CV2_AVAILABLE and len(annotated_image.shape) == 3 and annotated_image.shape[2] == 3:
+            # Convert BGR to RGB if OpenCV was used
+            annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
+            st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
+        else:
+            # Display as-is if PIL was used (already RGB)
+            st.image(annotated_image, caption="Hasil Deteksi dengan Bounding Box", width='stretch')
         
         # Download button
         img_base64 = image_to_base64(annotated_image)
