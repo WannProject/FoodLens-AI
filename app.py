@@ -819,7 +819,7 @@ if uploaded:
         # Image preview with info
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.image(image, caption="📷 **Pratinjau Gambar**", use_container_width=True)
+            st.image(image, caption="📷 **Pratinjau Gambar**", width="stretch")
         with col2:
             img_width, img_height = image.size
             st.markdown("### 📊 **Info Gambar**")
@@ -924,10 +924,10 @@ if st.session_state.detection_results:
         if CV2_AVAILABLE and len(annotated_image.shape) == 3 and annotated_image.shape[2] == 3:
             # Convert BGR to RGB if OpenCV was used
             annotated_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-            st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", use_container_width=True)
+            st.image(annotated_rgb, caption="Hasil Deteksi dengan Bounding Box", width="stretch")
         else:
             # Display as-is if PIL was used (already RGB)
-            st.image(annotated_image, caption="Hasil Deteksi dengan Bounding Box", use_container_width=True)
+            st.image(annotated_image, caption="Hasil Deteksi dengan Bounding Box", width="stretch")
         
         # Download button
         img_base64 = image_to_base64(annotated_image)
