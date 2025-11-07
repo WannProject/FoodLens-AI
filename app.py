@@ -111,11 +111,15 @@ try:
     
     # Auto-load model if YOLO is available and model not loaded yet
     if YOLO_AVAILABLE and not st.session_state.model_loaded:
-        with st.spinner("Auto-loading YOLO model..."):
-            model = load_yolo_model(st.session_state.model_path)
-            if model:
-                st.session_state.model = model
-                st.session_state.model_loaded = True
+        st.write("🔄 **Loading YOLO model...**")
+        model = load_yolo_model(st.session_state.model_path)
+        if model:
+            st.session_state.model = model
+            st.session_state.model_loaded = True
+            st.success("✅ **Model loaded successfully!**")
+            st.rerun()
+        else:
+            st.error("❌ **Failed to load model**")
                 
 except Exception as e:
     st.error(f"Session initialization error: {str(e)}")
@@ -203,27 +207,29 @@ def load_yolo_model(model_path: str) -> Optional[YOLO]:
     Load YOLO model with caching for performance
     """
     try:
+        st.write(f"🔍 **Checking YOLO availability...**")
         if not YOLO_AVAILABLE:
-            st.warning("⚠️ YOLO/OpenCV tidak tersedia di environment ini")
+            st.error("❌ YOLO/OpenCV tidak tersedia di environment ini")
             st.info("🔄 Menggunakan API mode atau demo mode saja")
             return None
             
-        if not CV2_AVAILABLE:
-            st.warning("⚠️ OpenCV tidak tersedia di environment ini")
-            st.info("🔄 Menggunakan PIL untuk image processing")
-            # We can still use YOLO without OpenCV for basic functionality
-            # but need to handle image processing differently
-            
+        st.write(f"📁 **Model path:** {model_path}")
         if not os.path.exists(model_path):
             st.error(f"❌ Model file not found: {model_path}")
             return None
             
+        st.write(f"📦 **Loading YOLO model...**")
         model = YOLO(model_path)
-        st.success(f"✅ Model loaded successfully: {model_path}")
+        st.success(f"✅ **Model loaded successfully!**")
+        st.info(f"📍 **Model location:** {model_path}")
         return model
         
     except Exception as e:
-        st.error(f"❌ Error loading model: {str(e)}")
+        st.error(f"❌ **Error loading model:** {str(e)}")
+        st.write(f"🐛 **Debug info:**")
+        st.write(f"- Model path: {model_path}")
+        st.write(f"- Path exists: {os.path.exists(model_path)}")
+        st.write(f"- YOLO available: {YOLO_AVAILABLE}")
         return None
 
 # -----------------------------
