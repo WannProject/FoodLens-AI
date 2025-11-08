@@ -13,7 +13,7 @@ from datetime import datetime
 GROQ_API_KEY = "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"
 GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 # API URLs - try multiple options
-HUGGINGFACE_API_URL = "https://wanndev14-yolo-api.hf.space"  # Update after deployment
+HUGGINGFACE_API_URL = "https://wanndev14-yolo-nutrition-api.hf.space/"  # Update after deployment
 LOCAL_API_URL = "http://localhost:5000"
 
 INDONESIAN_FOOD_CLASSES = [
